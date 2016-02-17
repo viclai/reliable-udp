@@ -51,7 +51,7 @@ int main(int argc, char* argv[])
     char* fileRequestMsg = (char*)malloc(30*sizeof(char));
     sprintf(fileRequestMsg, "File: %s", filename);
     printf("message says %s", fileRequestMsg);
-    if (sendto(sockfd, fileRequestMsg, sizeof(fileRequestMsg), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
+    if (sendto(sockfd, fileRequestMsg, strlen(fileRequestMsg), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
         error("ERROR sending request");
     
     printf("Sent request for file w/o local error %s\n", filename);
