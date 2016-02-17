@@ -7,7 +7,7 @@
 #include <sys/types.h>
 #include <netdb.h>      // define structures like hostent
 #include <strings.h>
-
+#include <string.h>
 
 void error(char *msg)
 {
@@ -47,9 +47,11 @@ int main(int argc, char* argv[])
     serv_addr.sin_family = AF_INET; //initialize server's address
     bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
     serv_addr.sin_port = htons(portno);
-
     
-    if (sendto(sockfd, filename, sizeof(filename), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
+    char* fileRequestMsg = (char*)malloc(30*sizeof(char));
+    sprintf(fileRequestMsg, "File: %s", filename);
+    printf("message says %s", fileRequestMsg);
+    if (sendto(sockfd, fileRequestMsg, sizeof(fileRequestMsg), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
         error("ERROR sending request");
     
     printf("Sent request for file w/o local error %s\n", filename);
