@@ -1,5 +1,7 @@
-Group # 6 
+Group #6 
 Victor Lai, #404274720 
 Mahir Eusufzai, #
 
-How did we divide up the work? 
+We first started by implementing a UDP client-server interaction without any 
+noise (i.e. packet loss, corruption). Mahir worked on the receiver (client) 
+side, while Victor worked on the sender (server) side. 

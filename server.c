@@ -1,49 +1,55 @@
-#include <stdio.h>      // fprintf
+#include "server.h"
+//#include "noise.h"
+
 #include <string.h>     // memset
-#include <stdlib.h>     // atoi, exit
+#include <stdlib.h>     // atoi, exit, malloc, free, atol
 #include <fcntl.h>      // fcntl
 #include <unistd.h>     // usleep
 #include <netinet/in.h> // sockaddr_in, htons, INADDR_ANY
 #include <sys/types.h>  
-#include <netdb.h>      // hostent, gethostbyaddr
 #include <sys/select.h> // select
 #include <sys/socket.h> // socket, bind, sockaddr, AF_INET, SOCK_DGRAM
 #include <sys/time.h>   // FD_SET, FD_ISSET, FD_ZERO, gettimeofday, timeval
+#include <stdio.h>      // fprintf, fopen, ftell, fclose, fseek, rewind,
+                        // SEEK_END
 
-#include <string>
-#include <iostream>
+#include <string>       // string, to_string, c_str
+#include <cstring>      // strcpy, strchr
+#include <vector>       // vector
+#include <utility>      // pair
 using namespace std;
-
-const int BUFFER_SIZE = 1024;
-const int TIMEOUT = 4;
-
-int getClientMsg(int sockfd, string& msg, int flags,
-                 struct sockaddr* clientAddr,
-                 socklen_t* addrLen);
-
-int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
-            struct sockaddr* destAddr, socklen_t destLen);
 
 int main(int argc, char* argv[])
 {
-  // Usage: ./server portNumber
-  // Server is the sender
-  // Send the packet with the file content to the client
-
-  int sockfd, port, n, nRead, activity;
+  int sockfd, port, n, activity, windowSize, sequence;
   string clientMsg, clientName;
   struct sockaddr_in serverAddr, clientAddr;
   socklen_t clientAddrLen;
-  struct hostent* clientHost;
   fd_set readFds;
+  SRInfo* clientReq;
+  const char* serverMsg;
+  pair<MessageType, string> typeValue;
+  MessageType msgType;
 
-  if (argc < 2)
+  if (argc < 3) // TODO: Add probabilities for corruption and packet loss
   {
-    fprintf(stderr, "ERROR: no port provided\n");
+    fprintf(stderr, "Usage: %s PORT WINDOW-SIZE\n", argv[0]);
     exit(1);
   }
 
   port = atoi(argv[1]);
+
+  windowSize = atoi(argv[2]);
+  if (windowSize > MAX_SEQUENCE / 2)
+  {
+    fprintf(stderr, "Window size is too large\n");
+    exit(1);
+  }
+  if (windowSize < MAX_PACKET_SIZE)
+  {
+    fprintf(stderr, "Window size must be at least %dB\n", MAX_PACKET_SIZE);
+    exit(1);
+  }
 
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0)
@@ -64,56 +70,100 @@ int main(int argc, char* argv[])
     exit(1);
   }
 
+  clientReq = new SRInfo;
   while (true)
   {
     FD_ZERO(&readFds);
-
     FD_SET(sockfd, &readFds);
 
-    // TODO: Set timeout
+    // TODO: Timeout not set in select()
     activity = select(sockfd + 1, &readFds, NULL, NULL, NULL);
     if (activity < 0)
       fprintf(stdout, "Select error\n");
-    if (FD_ISSET(sockfd, &readFds))
+    else if (activity == 0) // Timeout
     {
-      fprintf(stdout, "Receiving a packet...\n");
-
-      if ((nRead = getClientMsg(sockfd, clientMsg, 0,
-                                (struct sockaddr*)&clientAddr,
-                                &clientAddrLen)) == 0)
+      delete clientReq;
+      clientReq = new SRInfo;
+      continue;
+    }
+    else
+    {
+      if (FD_ISSET(sockfd, &readFds))
       {
-        // Disconnected
-        close(sockfd);
-        break;
-      }
-      else
-      {
-        // TODO: Process client message
+        fprintf(stdout, "Receiving a packet...\n");
 
-        if ((clientHost = gethostbyaddr(&clientAddr.sin_addr.s_addr,
-                                        sizeof(clientAddr.sin_addr.s_addr),
-                                        AF_INET)))
+        if (getClientMsg(sockfd, clientMsg, 0, (struct sockaddr*)&clientAddr,
+                         &clientAddrLen) == 0)
         {
-          clientName = clientHost->h_name;
+          // TODO
+          close(sockfd);
+          break;
         }
         else
-          clientName = "Unknown Client";
-
-        cout << "Message from " << clientName << ": " <<
-                clientMsg << "\n";
-        const char* msg = "I got your message!\n";
-        n = sendMsg(sockfd, msg, 20, 0, (struct sockaddr*)&clientAddr,
-                    clientAddrLen);
-        if (n < 0)
         {
-          perror("ERROR sending to socket");
-          exit(1);
+          // TODO: Call noise function to determine if packet is corrupted or
+          // lost
+
+          fprintf(stdout, "Incoming message: %s\n", clientMsg.c_str());
+
+          // Process client message
+          typeValue = parseMsg(clientMsg, clientReq);
+          msgType = typeValue.first;
+          if (msgType == REQUEST)
+          {
+            if (fileExists(&clientReq->filemeta))
+            {
+              fprintf(stdout, "Requested file exists\n");
+            }
+            else
+            {
+              fprintf(stdout, "Requested file does not exist\n");
+            }
+            fprintf(stdout, "Preparing packet(s)...\n");
+            createSegments(clientReq);
+          }
+          else if (msgType == ACK)
+          {
+            sequence = atoi(typeValue.second.c_str());
+            processAck(&clientReq->sequenceSpace, sequence);
+          }
+          else // Message with unknown format
+          {
+            serverMsg = "Unable to process your message\n";
+            n = sendMsg(sockfd, serverMsg, strlen(serverMsg), 0,
+                        (struct sockaddr*)&clientAddr, clientAddrLen);
+            if (n < 0)
+            {
+              perror("ERROR sending to client address");
+              exit(1);
+            }
+            continue;
+          }
+
+          // TODO: Send packets if window is not full
+          sendPackets(&clientReq->sequenceSpace, windowSize, sockfd,
+                      (struct sockaddr*)&clientAddr, clientAddrLen);
         }
       }
     }
   }
 
   return 0;
+}
+
+FileData::FileData()
+{
+  length = 0;
+}
+
+Ack::Ack()
+{
+  isAcked = false;
+}
+
+AckSpace::AckSpace()
+{
+  windowSize = base = nextSeq = 0;
 }
 
 int getClientMsg(int sockfd, string& msg, int flags,
@@ -178,4 +228,152 @@ int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
     length -= n;
   }
   return (n > 0) ? 0 : -1;
+}
+
+pair<MessageType, string> parseMsg(string message, SRInfo* clientRequest)
+{
+  int len, startIndex;
+  char* value; // Either file name or ACK sequence number
+  char* msg;
+  char* space;
+  pair<MessageType, string> typeValue;
+
+  msg = new char[message.size() + 1];
+  strcpy(msg, message.c_str());
+  if (strstr(msg, "File") == msg)
+    typeValue.first = REQUEST;
+  else if (strstr(msg, "ACK") == msg)
+    typeValue.first = ACK;
+  else
+  {
+    typeValue.first = UNKNOWN;
+    return typeValue;
+  }
+
+  space = strchr(msg, ' ');
+  startIndex = space - msg + 1;
+  len = message.size() - startIndex + 1;
+
+  value = new char[len];
+  memcpy(value, &msg[startIndex], len - 1);
+  value[len - 1] = '\0';
+  if (typeValue.first == REQUEST)
+    clientRequest->filemeta.name = value;
+  typeValue.second = value;
+
+  return typeValue;
+}
+
+bool fileExists(FileData* file)
+{
+  FILE* pFile;
+  char* fileData;
+
+  pFile = fopen(file->name.c_str(), "rb");
+  if (pFile == NULL)
+    return false;
+
+  fseek(pFile, 0, SEEK_END);
+  file->length = ftell(pFile);
+  rewind(pFile);
+  fileData = (char*)malloc((file->length + 1) * sizeof(char));
+  fread(fileData, 1, file->length, pFile);
+  file->content = fileData;
+
+  free(fileData);
+  fclose(pFile);
+  return true;
+}
+
+void createSegments(SRInfo* clientRequest)
+{
+  int curSequence, curFilePos, dataLen, fileSize;
+  string header, segmentData;
+  Ack segment;
+
+  curSequence = curFilePos = 0;
+  fileSize = clientRequest->filemeta.length;
+  
+  if (fileSize == 0)
+  {
+    header = "SEQ: " + to_string(curSequence) + "\n" +
+             "File Size: " + to_string(fileSize) + "B\n\n";
+    segmentData = header;
+
+    segment.sequence = curSequence;
+    segment.data = segmentData;
+    clientRequest->sequenceSpace.seqNums.push_back(segment);
+    return;
+  }
+
+  while (curFilePos < fileSize)
+  {
+    header = "SEQ: " + to_string(curSequence) + "\n" +
+             "File Size: " + to_string(fileSize) + "B\n\n";
+    dataLen = MAX_PACKET_SIZE - header.size();
+    segmentData = header +
+                  clientRequest->filemeta.content.substr(curFilePos, dataLen);
+
+    segment.sequence = curSequence;
+    segment.data = segmentData;
+    clientRequest->sequenceSpace.seqNums.push_back(segment);
+    
+    curSequence = (curSequence + segmentData.size()) % (MAX_SEQUENCE + 1);
+    curFilePos += dataLen;
+  }
+
+  return;
+}
+
+void processAck(AckSpace* sequenceSpace, int n)
+{
+  int i, j, windowSize;
+
+  windowSize = sequenceSpace->windowSize;
+
+  for (i = 0, j = sequenceSpace->base; i < windowSize; j++)
+  {
+    if (sequenceSpace->seqNums[j].sequence == n)
+    {
+      sequenceSpace->seqNums[j].isAcked = true;
+      if (j == sequenceSpace->base)
+        sequenceSpace->base++;
+      if (windowSize != 0)
+        sequenceSpace->windowSize -= sequenceSpace->seqNums[j].data.size();
+      break;
+    }
+    i += sequenceSpace->seqNums[j].data.size();
+  }
+
+  return;
+}
+
+void sendPackets(AckSpace* sequenceSpace, int windowSize, int sockfd,
+                 struct sockaddr* destAddr, socklen_t destLen)
+{
+  int i, n, diff;
+  string curPacket;
+
+  while (sequenceSpace->windowSize < windowSize &&
+         sequenceSpace->nextSeq < (int)sequenceSpace->seqNums.size())
+  {
+    i = sequenceSpace->nextSeq;
+    curPacket = sequenceSpace->seqNums[i].data;
+    diff = windowSize - sequenceSpace->windowSize;
+
+    if ((int)curPacket.size() > diff)
+      break;
+    n = sendMsg(sockfd, curPacket.c_str(), curPacket.size(), 0, destAddr,
+                destLen);
+    if (n < 0)
+    {
+      perror("ERROR sending to client address");
+      exit(1);
+    }
+    fprintf(stdout, "Sent SEQ %d\n", sequenceSpace->seqNums[i].sequence);
+
+    sequenceSpace->windowSize += curPacket.size();
+    sequenceSpace->nextSeq++;
+  }
+  return; // TODO: Might want to return the number of packets sent
 }
