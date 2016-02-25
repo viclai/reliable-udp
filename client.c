@@ -8,6 +8,7 @@
 #include <netdb.h>      // define structures like hostent
 #include <strings.h>
 #include <string.h>
+#include <errno.h>
 
 void error(char *msg)
 {
@@ -55,6 +56,40 @@ int main(int argc, char* argv[])
         error("ERROR sending request");
     
     printf("Sent request for file w/o local error %s\n", filename);
+    
+    char* buffer = (char*)malloc(256);
+    socklen_t slen = sizeof(struct sockaddr_in);
+        int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
+        if (n == -1) {
+            printf("an error: %s\n", strerror(errno));
+        }
+        else if (n == 0) {
+            printf("empty\n");
+        }
+        else {
+            printf("Received %d bytes\n", n);
+            printf("buffer is %s\n", buffer);
+            
+            //TO DO: store file
+            //TO DO: where are rest of bytes??
+            
+            //send ack
+            char* ack = (char*)malloc(32);
+            sprintf(ack, "Ack: 0");
+            if (sendto(sockfd, ack, strlen(ack), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+                printf("error\n");
+            }
+            else {
+                printf("ack success\n");
+                printf("sent %s", ack);
+            }
+
+        }
+
+    
+
+    
+    
         
     
     
