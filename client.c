@@ -1,3 +1,5 @@
+//PROJECT 2
+
 #include <stdio.h>      // fprintf
 #include <stdlib.h>     // atoi
 #include <unistd.h>     // getopt
@@ -57,8 +59,9 @@ int main(int argc, char* argv[])
     
     printf("Sent request for file w/o local error %s\n", filename);
     
-    char* buffer = (char*)malloc(256);
+    char buffer[256];
     socklen_t slen = sizeof(struct sockaddr_in);
+    
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
         if (n == -1) {
             printf("an error: %s\n", strerror(errno));
@@ -72,10 +75,10 @@ int main(int argc, char* argv[])
             
             //TO DO: store file
             //TO DO: where are rest of bytes??
-            
+
             //send ack
             char* ack = (char*)malloc(32);
-            sprintf(ack, "Ack: 0");
+            sprintf(ack, "ACK: 0");
             if (sendto(sockfd, ack, strlen(ack), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
                 printf("error\n");
             }
