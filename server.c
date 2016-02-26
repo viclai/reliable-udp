@@ -176,6 +176,7 @@ int getClientMsg(int sockfd, string& msg, int flags,
   double diff;
   int opts;
 
+  msg = ""; // This should be empty before being read
   opts = fcntl(sockfd, F_SETFL, O_NONBLOCK); // Make the socket non-blocking
 
   gettimeofday(&start, NULL);
