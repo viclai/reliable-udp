@@ -18,6 +18,68 @@ void error(char *msg)
     exit(0);
 }
 
+int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents) {
+    //TO DO:
+    //strtok was causing problems, so brute force for now
+    //maybe optimize if time later
+    
+    int i = 0;
+    int start, end;
+    
+    //obtain seq num
+    while (1) {
+        char cur = *(newBuffer + i);
+        if (cur == ':') {
+            start = i+2;
+        }
+        else if (cur == '\n') {
+            end = i-1;
+            break;
+        }
+        i++;
+    }
+    int seqLength = end - start + 1;
+    char* seqNumString = (char*)malloc(seqLength+1);
+    seqNumString[seqLength] = '\0';
+    memcpy(seqNumString, newBuffer + start, seqLength);
+    seqNum = atoi(seqNumString);
+    //printf("seq num is %d\n", seqNum);
+    
+    //obtain file size
+    while (1) {
+        char cur = *(newBuffer + i);
+        if (cur == ':') {
+            start = i+2;
+        }
+        else if (cur == 'B') {
+            end = i-1;
+            break;
+        }
+        i++;
+    }
+    
+    int length = end - start + 1;
+    char* fileSizeString = (char*)malloc(length+1);
+    fileSizeString[length] = '\0';
+    memcpy(fileSizeString, newBuffer + start, length);
+    fileSize = atoi(fileSizeString);
+    //printf("f size is %d\n", fileSize);
+    
+    start = i+3;
+    while (1) {
+        char cur = *(newBuffer + i);
+        if (cur == '\0') {
+            end = i;
+            break;
+        }
+        i++;
+    }
+    
+    int contentLength = end - start + 1;
+    memcpy(contents, newBuffer + start, contentLength);
+    contents[contentLength] = '\0';
+    //printf("contents\n%s\n", contents);
+}
 
 int main(int argc, char* argv[])
 {
@@ -61,7 +123,9 @@ int main(int argc, char* argv[])
     
     char buffer[256];
     socklen_t slen = sizeof(struct sockaddr_in);
-    
+    int count = 0;
+    while (count < 5) {
+        
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
         if (n == -1) {
             printf("an error: %s\n", strerror(errno));
@@ -74,20 +138,42 @@ int main(int argc, char* argv[])
             printf("buffer is %s\n", buffer);
             
             //TO DO: store file
-            //TO DO: where are rest of bytes??
+            
+            
+            //seq: ____\n
+            //size: ____B\n\n
+            //contents
+            
+            //copy buffer contents
+            char* newBuffer = (char*)malloc(256);
+            memcpy(newBuffer, buffer, 256);
+            
+        
+            int seqNum;
+            int fileSize;
+            char* contents;
+            contents = (char*)malloc(256);
+            memset(contents, 0, 256);
 
+            parseChunk(newBuffer, seqNum, fileSize, contents);
+            printf("seqNum is %d\n", seqNum);
+            printf("file size is %d\n", fileSize);
+            printf("Contents are\n%s", contents);
+            
             //send ack
             char* ack = (char*)malloc(32);
-            sprintf(ack, "ACK: 0");
+            sprintf(ack, "ACK: %d", count);
             if (sendto(sockfd, ack, strlen(ack), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
                 printf("error\n");
             }
             else {
                 printf("ack success\n");
                 printf("sent %s", ack);
+                count++;
             }
 
         }
+    }
 
     
 
