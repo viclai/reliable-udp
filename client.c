@@ -12,6 +12,8 @@
 #include <string.h>
 #include <errno.h>
 
+#define UNKNOWN_FILE_LENGTH -1
+
 void error(char *msg)
 {
     perror(msg);
@@ -19,6 +21,9 @@ void error(char *msg)
 }
 
 int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents) {
+    //stores sequence number, file size, and file contents
+    //returns size of file
+    
     //TO DO:
     //strtok was causing problems, so brute force for now
     //maybe optimize if time later
@@ -79,6 +84,8 @@ int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents) {
     memcpy(contents, newBuffer + start, contentLength);
     contents[contentLength] = '\0';
     //printf("contents\n%s\n", contents);
+    
+    return contentLength;
 }
 
 int main(int argc, char* argv[])
@@ -124,8 +131,10 @@ int main(int argc, char* argv[])
     char buffer[256];
     socklen_t slen = sizeof(struct sockaddr_in);
     int count = 0;
-    while (count < 5) {
-        
+    int totalLength = 0;
+    int fileSize = UNKNOWN_FILE_LENGTH;
+    while (fileSize == UNKNOWN_FILE_LENGTH || totalLength < fileSize) {
+        memset(buffer, 0, sizeof(buffer));
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
         if (n == -1) {
             printf("an error: %s\n", strerror(errno));
@@ -135,14 +144,10 @@ int main(int argc, char* argv[])
         }
         else {
             printf("Received %d bytes\n", n);
-            printf("buffer is %s\n", buffer);
+            //printf("buffer is %s\n", buffer);
             
             //TO DO: store file
-            
-            
-            //seq: ____\n
-            //size: ____B\n\n
-            //contents
+        
             
             //copy buffer contents
             char* newBuffer = (char*)malloc(256);
@@ -150,12 +155,12 @@ int main(int argc, char* argv[])
             
         
             int seqNum;
-            int fileSize;
             char* contents;
             contents = (char*)malloc(256);
             memset(contents, 0, 256);
-
-            parseChunk(newBuffer, seqNum, fileSize, contents);
+            int contentLength = parseChunk(newBuffer, seqNum, fileSize, contents);
+            totalLength+= contentLength;
+            
             printf("seqNum is %d\n", seqNum);
             printf("file size is %d\n", fileSize);
             printf("Contents are\n%s", contents);
