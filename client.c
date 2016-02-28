@@ -14,6 +14,8 @@
 
 #define UNKNOWN_FILE_LENGTH -1
 #define MAX_PACKET_SIZE 1024
+#define pLoss   0
+#define pCorrupt 0
 
 void error(char *msg)
 {
@@ -21,6 +23,13 @@ void error(char *msg)
     exit(0);
 }
 
+double randomNum()
+{
+    //returns random number from [0...1]
+    double num = (double)rand() / (double)RAND_MAX ;
+    //printf("prob is %f", num);
+    return num;
+}
 int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents) {
     //stores sequence number, file size, and file contents
     //returns size of file
@@ -135,11 +144,19 @@ int main(int argc, char* argv[])
     int totalLength = 0;
     int fileSize = UNKNOWN_FILE_LENGTH;
     FILE *file = fopen(strcat(filename, "_1"), "wb"); //to do, fix filename
+    
     while (fileSize == UNKNOWN_FILE_LENGTH || totalLength < fileSize) {
         memset(buffer, 0, sizeof(buffer));
+        int isLost = (randomNum() < pLoss);
+        int isCorrupt = (randomNum() < pCorrupt);
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
-        if (n == -1) {
-            printf("an error: %s\n", strerror(errno));
+        
+        if (n == -1 || (randomNum() < isLost)) {
+            printf("packet lost\n");
+            //printf("an error: %s\n", strerror(errno));
+        }
+        else if (isCorrupt) {
+            printf("packet is corrupt\n");
         }
         else if (n == 0) {
             printf("empty\n");
