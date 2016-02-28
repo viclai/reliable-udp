@@ -59,7 +59,7 @@ bool fileExists(FileData* file);
 
 void createSegments(SRInfo* clientRequest);
 
-void processAck(AckSpace* sequenceSpace, int n);
+void processAcks(AckSpace* sequenceSpace, std::string acks);
 
 void sendPackets(AckSpace* sequenceSpace, int windowSize, int sockfd,
                  struct sockaddr* destAddr, socklen_t destLen);
