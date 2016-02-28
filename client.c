@@ -13,6 +13,7 @@
 #include <errno.h>
 
 #define UNKNOWN_FILE_LENGTH -1
+#define MAX_PACKET_SIZE 1024
 
 void error(char *msg)
 {
@@ -128,11 +129,12 @@ int main(int argc, char* argv[])
     
     printf("Sent request for file w/o local error %s\n", filename);
     
-    char buffer[256];
+    char buffer[MAX_PACKET_SIZE];
     socklen_t slen = sizeof(struct sockaddr_in);
     int count = 0;
     int totalLength = 0;
     int fileSize = UNKNOWN_FILE_LENGTH;
+    FILE *file = fopen(strcat(filename, "_1"), "wb"); //to do, fix filename
     while (fileSize == UNKNOWN_FILE_LENGTH || totalLength < fileSize) {
         memset(buffer, 0, sizeof(buffer));
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
@@ -150,44 +152,38 @@ int main(int argc, char* argv[])
         
             
             //copy buffer contents
-            char* newBuffer = (char*)malloc(256);
-            memcpy(newBuffer, buffer, 256);
+            char* newBuffer = (char*)malloc(MAX_PACKET_SIZE);
+            memcpy(newBuffer, buffer, MAX_PACKET_SIZE);
             
         
             int seqNum;
             char* contents;
-            contents = (char*)malloc(256);
-            memset(contents, 0, 256);
+            contents = (char*)malloc(MAX_PACKET_SIZE);
+            memset(contents, 0, MAX_PACKET_SIZE);
             int contentLength = parseChunk(newBuffer, seqNum, fileSize, contents);
             totalLength+= contentLength;
-            
+            fwrite(contents, sizeof(char), contentLength-1, file);
             printf("seqNum is %d\n", seqNum);
             printf("file size is %d\n", fileSize);
             printf("Contents are\n%s", contents);
             
             //send ack
             char* ack = (char*)malloc(32);
-            sprintf(ack, "ACK: %d", count);
+            sprintf(ack, "ACK: %d", seqNum);
             if (sendto(sockfd, ack, strlen(ack), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
                 printf("error\n");
             }
             else {
-                printf("ack success\n");
-                printf("sent %s", ack);
+                //printf("ack success\n");
+                printf("sent %s\n", ack);
                 count++;
             }
 
         }
     }
 
-    
-
-    
-    
-        
-    
-    
-        close(sockfd); //close socket
+    fclose(file);
+    close(sockfd); //close socket
         
         return 0;
     
