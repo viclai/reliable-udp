@@ -151,7 +151,7 @@ int main(int argc, char* argv[])
         int isCorrupt = (randomNum() < pCorrupt);
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
         
-        if (n == -1 || (randomNum() < isLost)) {
+        if (n == -1 || isLost) {
             printf("packet lost\n");
             //printf("an error: %s\n", strerror(errno));
         }
