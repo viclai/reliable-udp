@@ -1,13 +1,13 @@
 #include "server.h"
-//#include "noise.h"
+#include "noise.h"
 
 #include <string.h>     // memset
 #include <stdlib.h>     // atoi, exit, malloc, free, atol
-#include <fcntl.h>      // fcntl
-#include <unistd.h>     // usleep
-#include <netinet/in.h> // sockaddr_in, htons, INADDR_ANY
-#include <errno.h>      // errno
+#include <signal.h>     // signalaction
+#include <unistd.h>     // alarm
+#include <netinet/in.h> // sockaddr_in, htons, htonl, INADDR_ANY
 #include <sys/types.h>  
+#include <errno.h>      // errno
 #include <sys/select.h> // select
 #include <sys/socket.h> // socket, bind, sockaddr, AF_INET, SOCK_DGRAM
 #include <sys/time.h>   // FD_SET, FD_ISSET, FD_ZERO, gettimeofday, timeval
@@ -17,7 +17,8 @@
 #include <string>       // string, to_string, c_str
 #include <cstring>      // strcpy, strchr, strstr
 #include <vector>       // vector
-#include <utility>      // pair
+#include <list>         // list
+#include <utility>      // pair, make_pair
 using namespace std;
 
 int main(int argc, char* argv[])
@@ -26,8 +27,8 @@ int main(int argc, char* argv[])
   string clientMsg, clientName;
   struct sockaddr_in serverAddr, clientAddr;
   socklen_t addrLen;
+  struct sigaction action;
   fd_set readFds;
-  SRInfo* clientReq;
   const char* serverMsg;
   pair<MessageType, string> typeValue;
   MessageType msgType;
@@ -71,6 +72,11 @@ int main(int argc, char* argv[])
     exit(1);
   }
 
+  action.sa_handler = catchAlarm;
+  action.sa_flags = SA_RESTART;
+  sigaction(SIGALRM, &action, NULL);
+  alarm(ALARM_TIME);
+
   addrLen = sizeof(clientAddr);
 
   clientReq = new SRInfo;
@@ -82,7 +88,10 @@ int main(int argc, char* argv[])
     // TODO: Timeout not set in select()
     activity = select(sockfd + 1, &readFds, NULL, NULL, NULL);
     if (activity < 0)
-      fprintf(stdout, "Select error\n");
+    {
+      if (errno != EINTR)
+        fprintf(stderr, "* Select error(#%d)\n", errno);
+    }
     else if (activity == 0) // Timeout
     {
       delete clientReq;
@@ -111,10 +120,14 @@ int main(int argc, char* argv[])
           fprintf(stdout, "* Incoming message: %s\n", clientMsg.c_str());
 
           // Process client message
-          typeValue = parseMsg(clientMsg, clientReq);
+          typeValue = parseMsg(clientMsg);
           msgType = typeValue.first;
           if (msgType == REQUEST)
           {
+            clientReq->clientInfo.address = (struct sockaddr*)&clientAddr;
+            clientReq->clientInfo.length = addrLen;
+            clientReq->clientInfo.sockfd = sockfd;
+
             if (fileExists(&clientReq->filemeta))
             {
               fprintf(stdout, "* Requested file exists\n");
@@ -125,7 +138,7 @@ int main(int argc, char* argv[])
             }
             fprintf(stdout, "* Preparing packet(s) for '%s'...\n",
               clientReq->filemeta.name.c_str());
-            createSegments(clientReq);
+            createSegments();
           }
           else if (msgType == ACK)
           {
@@ -145,9 +158,9 @@ int main(int argc, char* argv[])
             continue;
           }
 
-          // TODO: Send packets if window is not full
+          // Send packets if window is not full
           sendPackets(&clientReq->sequenceSpace, windowSize, sockfd,
-                      (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+                      (struct sockaddr*)&clientAddr, addrLen);
         }
       }
     }
@@ -187,14 +200,11 @@ int recvMsg(int sockfd, string& msg, int flags, struct sockaddr* clientAddr,
   return nRead;
 }
 
-
-
 int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
             struct sockaddr* destAddr, socklen_t destLen)
 {
   ssize_t n;
   const char* p = (const char*)buffer;
-
   while (length > 0)
   {
     n = sendto(sockfd, p, length, flags, destAddr, destLen);
@@ -207,7 +217,7 @@ int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
   return (n > 0) ? 0 : -1;
 }
 
-pair<MessageType, string> parseMsg(string message, SRInfo* clientRequest)
+pair<MessageType, string> parseMsg(string message)
 {
   int len, startIndex, endIndex;
   char* value; // Either file name or ACK number(s)
@@ -265,7 +275,7 @@ pair<MessageType, string> parseMsg(string message, SRInfo* clientRequest)
     value = new char[len + 1];
     memcpy(value, &msg[startIndex], len);
     value[len] = '\0';
-    clientRequest->filemeta.name = value;
+    clientReq->filemeta.name = value;
     typeValue.second = value;
   }
   
@@ -293,14 +303,14 @@ bool fileExists(FileData* file)
   return true;
 }
 
-void createSegments(SRInfo* clientRequest)
+void createSegments()
 {
   int curSequence, curFilePos, dataLen, fileSize;
   string header, segmentData;
   Ack segment;
 
   curSequence = curFilePos = 0;
-  fileSize = clientRequest->filemeta.length;
+  fileSize = clientReq->filemeta.length;
   
   if (fileSize == 0)
   {
@@ -310,7 +320,7 @@ void createSegments(SRInfo* clientRequest)
 
     segment.sequence = curSequence;
     segment.data = segmentData;
-    clientRequest->sequenceSpace.seqNums.push_back(segment);
+    clientReq->sequenceSpace.seqNums.push_back(segment);
     return;
   }
 
@@ -320,11 +330,11 @@ void createSegments(SRInfo* clientRequest)
              "File Size: " + to_string(fileSize) + "B\n\n";
     dataLen = MAX_PACKET_SIZE - header.size();
     segmentData = header +
-                  clientRequest->filemeta.content.substr(curFilePos, dataLen);
+                  clientReq->filemeta.content.substr(curFilePos, dataLen);
 
     segment.sequence = curSequence;
     segment.data = segmentData;
-    clientRequest->sequenceSpace.seqNums.push_back(segment);
+    clientReq->sequenceSpace.seqNums.push_back(segment);
     
     curSequence = (curSequence + segmentData.size()) % (MAX_SEQUENCE + 1);
     curFilePos += dataLen;
@@ -338,6 +348,7 @@ void processAcks(AckSpace* sequenceSpace, string acks)
   int i, j, k, windowSize;
   vector<int> ackNums;
   string temp;
+  list<pair<int, struct timeval> >::iterator it;
   
   windowSize = sequenceSpace->windowSize;
 
@@ -360,8 +371,21 @@ void processAcks(AckSpace* sequenceSpace, string acks)
   for (i = 0, j = sequenceSpace->base, k = 0; i < windowSize; )
   {
     if (sequenceSpace->seqNums[j].sequence == ackNums[k])
-    {
+    { 
+      // Remove sequence from sentUnacked list
+      it = sequenceSpace->sentUnacked.begin();
+      while (it != sequenceSpace->sentUnacked.end())
+      {
+        if (sequenceSpace->seqNums[it->first].sequence == ackNums[k])
+        {
+          sequenceSpace->sentUnacked.erase(it);
+          break;
+        }
+        it++;
+      }
       sequenceSpace->seqNums[j].isAcked = true;
+      fprintf(stdout, "* ACK %d processed\n", ackNums[k]);
+
       if (j == sequenceSpace->base)
         sequenceSpace->base++;
       if (windowSize != 0)
@@ -389,7 +413,9 @@ void sendPackets(AckSpace* sequenceSpace, int windowSize, int sockfd,
                  struct sockaddr* destAddr, socklen_t destLen)
 {
   int i, n, diff;
+  struct timeval now;
   string curPacket;
+  pair<int, struct timeval> indexTime;
 
   while (sequenceSpace->windowSize < windowSize &&
          sequenceSpace->nextSeq < (int)sequenceSpace->seqNums.size())
@@ -407,10 +433,77 @@ void sendPackets(AckSpace* sequenceSpace, int windowSize, int sockfd,
       perror("* ERROR sending to client address");
       exit(1);
     }
+    gettimeofday(&now, NULL);
+    indexTime = make_pair(i, now);
+    sequenceSpace->sentUnacked.push_back(indexTime);
     fprintf(stdout, "* Sent SEQ %d\n", sequenceSpace->seqNums[i].sequence);
 
     sequenceSpace->windowSize += curPacket.size();
     sequenceSpace->nextSeq++;
   }
   return; // TODO: Might want to return the number of packets sent
+}
+
+void catchAlarm(int signal)
+{
+  fprintf(stdout, "*\n");
+  fprintf(stdout, "* Checking for timeouts...\n");
+  checkTimeout();
+  alarm(ALARM_TIME);
+  fprintf(stdout, "*\n");
+}
+
+void checkTimeout()
+{
+  suseconds_t diff;
+  int i, n, index, sockfd, nTimedOut;
+  struct timeval now;
+  struct sockaddr* destAddr;
+  socklen_t destLen;
+  string packetData;
+  vector<pair<int, struct timeval> > resent;
+  list<pair<int, struct timeval> >::iterator it;
+
+  it = clientReq->sequenceSpace.sentUnacked.begin();
+  sockfd = clientReq->clientInfo.sockfd;
+  destAddr = clientReq->clientInfo.address;
+  destLen = clientReq->clientInfo.length;
+  nTimedOut = 0;
+
+  while (it != clientReq->sequenceSpace.sentUnacked.end())
+  {
+    index = it->first;
+    packetData = clientReq->sequenceSpace.seqNums[index].data;
+
+    gettimeofday(&now, NULL);
+    diff = 
+      (1E6 * (now.tv_sec - it->second.tv_sec)) +
+      (now.tv_usec - it->second.tv_usec);
+
+    if (diff >= ACK_TIMEOUT) // Resend packet
+    {
+      fprintf(stdout, "* Timeout for SEQ %d!\n",
+        clientReq->sequenceSpace.seqNums[index].sequence);
+      nTimedOut++;
+      n = sendMsg(sockfd, packetData.c_str(), packetData.size(), 0, destAddr,
+                  destLen);
+      if (n < 0)
+      {
+        perror("ERROR sending to client address");
+        exit(1);
+      }
+      
+      gettimeofday(&now, NULL);
+      it = clientReq->sequenceSpace.sentUnacked.erase(it);
+      resent.push_back(make_pair(index, now));
+      continue;
+    }
+
+    it++;
+  }
+
+  for (i = 0; i < (int)resent.size(); i++)
+    clientReq->sequenceSpace.sentUnacked.push_back(resent[i]);
+
+  return;
 }
