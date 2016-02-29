@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
         fprintf(stdout, "*\n");
         fprintf(stdout, "* Receiving a packet...\n");
 
-        if (getClientMsg(sockfd, clientMsg, 0, (struct sockaddr*)&clientAddr,
+        if (recvMsg(sockfd, clientMsg, 0, (struct sockaddr*)&clientAddr,
                          &addrLen) == 0)
         {
           // TODO
@@ -129,6 +129,7 @@ int main(int argc, char* argv[])
           }
           else if (msgType == ACK)
           {
+            fprintf(stdout, "* Processing ACK(s)...\n");
             processAcks(&clientReq->sequenceSpace, typeValue.second);
           }
           else // Message with unknown format
@@ -170,53 +171,23 @@ AckSpace::AckSpace()
   windowSize = base = nextSeq = 0;
 }
 
-int getClientMsg(int sockfd, string& msg, int flags,
-                 struct sockaddr* clientAddr,
-                 socklen_t* addrLen)
+int recvMsg(int sockfd, string& msg, int flags, struct sockaddr* clientAddr,
+            socklen_t* addrLen)
 {
-  int nRead, totalRead;
   char buffer[BUFFER_SIZE];
-  struct timeval now, start;
-  double diff;
-  int opts;
+  int nRead;
 
-  msg = ""; // This should be empty before being read
-  totalRead = 0;
-  opts = fcntl(sockfd, F_SETFL, O_NONBLOCK); // Make the socket non-blocking
+  msg = "";
+  memset(buffer, 0, BUFFER_SIZE);
 
-  gettimeofday(&start, NULL);
-
-  while (1)
-  {
-    gettimeofday(&now, NULL);
-    //fprintf(stdout, "Family: %u\n", clientAddr->sa_family);
-
-    diff = 
-      (now.tv_sec - start.tv_sec) + (1E-6 * (now.tv_usec - start.tv_usec));
-
-    if (totalRead > 0 && diff > TIMEOUT)
-      break;
-    else if (diff > 2 * TIMEOUT)
-      break;
-
-    memset(buffer, 0, BUFFER_SIZE);
-    nRead = recvfrom(sockfd, buffer, BUFFER_SIZE, 0, clientAddr, addrLen);
-    if (nRead < 0)
-    {
-      usleep(100000); // No data so try again after sleeping
-    }
-    else
-    {
-      totalRead += nRead;
-
-      msg += buffer;
-
-      gettimeofday(&start, NULL); // Reset starting time
-    }
-  }
-  fcntl(sockfd, F_SETFL, opts & (~O_NONBLOCK)); // Reset socket to blocking
-  return totalRead;
+  if ((nRead =
+           recvfrom(sockfd, buffer, BUFFER_SIZE, 0, clientAddr, addrLen)) < 0)
+    return -1;
+  msg += buffer;
+  return nRead;
 }
+
+
 
 int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
             struct sockaddr* destAddr, socklen_t destLen)

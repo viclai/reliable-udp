@@ -46,8 +46,8 @@ struct SRInfo
   AckSpace sequenceSpace;
 };
 
-int getClientMsg(int sockfd, std::string& msg, int flags,
-                 struct sockaddr* clientAddr, socklen_t* addrLen);
+int recvMsg(int sockfd, std::string& msg, int flags,
+            struct sockaddr* clientAddr, socklen_t* addrLen);
 
 int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
             struct sockaddr* destAddr, socklen_t destLen);
