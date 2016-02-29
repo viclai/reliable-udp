@@ -97,7 +97,7 @@ int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
  * @param message[IN] message received from the client
  * @return pair containing the message type (REQUEST, ACK, or UNKNOWN) and
  *         its corresponding value (REQUEST: file name, ACK: sequence
- *         number(s), UNKNOWN: empty)
+ *         number, UNKNOWN: empty)
  */
 std::pair<MessageType, std::string> parseMsg(std::string message);
 
@@ -117,13 +117,13 @@ bool fileExists(FileData* file);
 void createSegments();
 
 /**
- * Processes ACK packets by marking those as ACKed and decreasing the window
+ * Processes an ACK packet by marking it as ACKed and decreasing the window
  * size used
  * @param sequenceSpace[IN/OUT] points to an AckSpace structure containing the
  *                              packets to be marked as ACKed
- * @param acks[IN] string of ACK number(s) seperated by spaces
+ * @param n[IN] ACK sequence number
  */
-void processAcks(AckSpace* sequenceSpace, std::string acks);
+void processAck(AckSpace* sequenceSpace, int n);
 
 /**
  * Sends packets if there is space in the current window

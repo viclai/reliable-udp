@@ -23,7 +23,7 @@ using namespace std;
 
 int main(int argc, char* argv[])
 {
-  int sockfd, port, n, activity, windowSize;
+  int sockfd, port, n, activity, windowSize, sequence;
   string clientMsg, clientName;
   struct sockaddr_in serverAddr, clientAddr;
   socklen_t addrLen;
@@ -142,8 +142,9 @@ int main(int argc, char* argv[])
           }
           else if (msgType == ACK)
           {
+            sequence = atoi(typeValue.second.c_str());
             fprintf(stdout, "* Processing ACK(s)...\n");
-            processAcks(&clientReq->sequenceSpace, typeValue.second);
+            processAck(&clientReq->sequenceSpace, sequence);
           }
           else // Message with unknown format
           {
@@ -219,8 +220,8 @@ int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
 
 pair<MessageType, string> parseMsg(string message)
 {
-  int len, startIndex, endIndex;
-  char* value; // Either file name or ACK number(s)
+  int len, startIndex;
+  char* value; // Either file name or ACK sequence number
   char* msg;
   char* space;
   pair<MessageType, string> typeValue;
@@ -237,48 +238,17 @@ pair<MessageType, string> parseMsg(string message)
     return typeValue;
   }
 
-  if (typeValue.first == ACK)
-  {
-    while (strstr(msg, "ACK") != NULL)
-    {
-      space = strchr(msg, ' ');
-      startIndex = space - msg + 1;
-      if (strstr(space, "ACK") != NULL)
-      {
-        endIndex = strstr(space, "ACK") - msg;
-        len = endIndex - startIndex;
-        value = new char[len + 1];
-        memcpy(value, &msg[startIndex], len);
-        value[len] = '\0';
-        typeValue.second += value;
-        typeValue.second += " ";
-        msg = strstr(space, "ACK");
-      }
-      else
-      {
-        endIndex = strchr(msg, '\0') - msg;
-        len = endIndex - startIndex;
-        value = new char[len + 1];
-        memcpy(value, &msg[startIndex], len);
-        value[len] = '\0';
-        typeValue.second += value;
-        break;
-      }
-    }
-  }
-  else // REQUEST
-  {
-    space = strchr(msg, ' ');
-    startIndex = space - msg + 1;
-    len = message.size() - startIndex;
+  space = strchr(msg, ' ');
+  startIndex = space - msg + 1;
+  len = message.size() - startIndex + 1;
 
-    value = new char[len + 1];
-    memcpy(value, &msg[startIndex], len);
-    value[len] = '\0';
+  value = new char[len];
+  memcpy(value, &msg[startIndex], len - 1);
+  value[len - 1] = '\0';
+  if (typeValue.first == REQUEST)
     clientReq->filemeta.name = value;
-    typeValue.second = value;
-  }
-  
+  typeValue.second = value;
+
   return typeValue;
 }
 
@@ -343,40 +313,22 @@ void createSegments()
   return;
 }
 
-void processAcks(AckSpace* sequenceSpace, string acks)
+void processAck(AckSpace* sequenceSpace, int n)
 {
-  int i, j, k, windowSize;
-  vector<int> ackNums;
-  string temp;
+  int i, j, windowSize;
   list<pair<int, struct timeval> >::iterator it;
-  
+
   windowSize = sequenceSpace->windowSize;
 
-  // Extract ACK number(s)
-  for (i = 0; i < (int)acks.size(); i++)
+  for (i = 0, j = sequenceSpace->base; i < windowSize; j++)
   {
-    if (acks[i] != ' ')
-      temp += acks[i];
-    else
+    if (sequenceSpace->seqNums[j].sequence == n)
     {
-      ackNums.push_back(atoi(temp.c_str()));
-      temp = "";
-    }
-  }
-  ackNums.push_back(atoi(temp.c_str())); // Extract last ACK number
-
-  // i: counter for window size
-  // j: index of packet
-  // k: index of ACK number
-  for (i = 0, j = sequenceSpace->base, k = 0; i < windowSize; )
-  {
-    if (sequenceSpace->seqNums[j].sequence == ackNums[k])
-    { 
-      // Remove sequence from sentUnacked list
       it = sequenceSpace->sentUnacked.begin();
       while (it != sequenceSpace->sentUnacked.end())
       {
-        if (sequenceSpace->seqNums[it->first].sequence == ackNums[k])
+        // Remove sequence from sentUnacked list
+        if (sequenceSpace->seqNums[it->first].sequence == n)
         {
           sequenceSpace->sentUnacked.erase(it);
           break;
@@ -384,26 +336,15 @@ void processAcks(AckSpace* sequenceSpace, string acks)
         it++;
       }
       sequenceSpace->seqNums[j].isAcked = true;
-      fprintf(stdout, "* ACK %d processed\n", ackNums[k]);
+      fprintf(stdout, "* ACK %d processed\n", n);
 
       if (j == sequenceSpace->base)
         sequenceSpace->base++;
       if (windowSize != 0)
-      {
         sequenceSpace->windowSize -= sequenceSpace->seqNums[j].data.size();
-        windowSize = sequenceSpace->windowSize;
-      }
-      k++;
-      if (k == (int)ackNums.size())
-        break;
-
-      // Reset
-      j = sequenceSpace->base;
-      i = 0;
-      continue;
+      break;
     }
     i += sequenceSpace->seqNums[j].data.size();
-    j++;
   }
 
   return;
