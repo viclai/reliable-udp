@@ -90,9 +90,9 @@ int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents) {
         i++;
     }
     
-    int contentLength = end - start + 1;
+    int contentLength = end - start; // account for excluding null byte
     memcpy(contents, newBuffer + start, contentLength);
-    contents[contentLength] = '\0';
+    //contents[contentLength] = '\0';
     //printf("contents\n%s\n", contents);
     
     return contentLength;
@@ -179,7 +179,7 @@ int main(int argc, char* argv[])
             memset(contents, 0, MAX_PACKET_SIZE);
             int contentLength = parseChunk(newBuffer, seqNum, fileSize, contents);
             totalLength+= contentLength;
-            fwrite(contents, sizeof(char), contentLength-1, file);
+            fwrite(contents, sizeof(char), contentLength, file);
             printf("seqNum is %d\n", seqNum);
             printf("file size is %d\n", fileSize);
             printf("Contents are\n%s", contents);
