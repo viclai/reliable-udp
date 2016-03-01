@@ -2,7 +2,7 @@
 #include "noise.h"
 
 #include <string.h>     // memset
-#include <stdlib.h>     // atoi, exit, malloc, free, atol
+#include <stdlib.h>     // atoi, exit, malloc, free, atol, atof
 #include <signal.h>     // signalaction
 #include <unistd.h>     // alarm
 #include <netinet/in.h> // sockaddr_in, htons, htonl, INADDR_ANY
@@ -32,10 +32,13 @@ int main(int argc, char* argv[])
   const char* serverMsg;
   pair<MessageType, string> typeValue;
   MessageType msgType;
+  double corruptProb, lossProb;
+  bool isLost;
 
-  if (argc < 3) // TODO: Add probabilities for corruption and packet loss
+  if (argc < 5)
   {
-    fprintf(stderr, "Usage: %s PORT WINDOW-SIZE\n", argv[0]);
+    fprintf(stderr,
+      "Usage: %s PORT WINDOW-SIZE PROB-LOSS PROB-CORRUPT\n", argv[0]);
     exit(1);
   }
 
@@ -50,6 +53,22 @@ int main(int argc, char* argv[])
   if (windowSize < MAX_PACKET_SIZE)
   {
     fprintf(stderr, "Window size must be at least %dB\n", MAX_PACKET_SIZE);
+    exit(1);
+  }
+
+  corruptProb = atof(argv[3]);
+  if (corruptProb < 0.0 || corruptProb > 100.0)
+  {
+    fprintf(stderr,
+      "Probability of corruption must be between 0 and 100 inclusive\n");
+    exit(1);
+  }
+
+  lossProb = atof(argv[4]);
+  if (lossProb < 0.0 || lossProb > 100.0)
+  {
+    fprintf(stderr,
+      "Probability of packet loss must be between 0 and 100 inclusive\n");
     exit(1);
   }
 
@@ -84,6 +103,7 @@ int main(int argc, char* argv[])
   {
     FD_ZERO(&readFds);
     FD_SET(sockfd, &readFds);
+    isLost = false;
 
     // TODO: Timeout not set in select()
     activity = select(sockfd + 1, &readFds, NULL, NULL, NULL);
@@ -103,7 +123,13 @@ int main(int argc, char* argv[])
       if (FD_ISSET(sockfd, &readFds))
       {
         fprintf(stdout, "*\n");
-        fprintf(stdout, "* Receiving a packet...\n");
+        if (simulatePacketLossCorruption(lossProb))
+        {
+          fprintf(stdout, "* Lost packet!\n");
+          isLost = true;
+        }
+        else
+          fprintf(stdout, "* Receiving a packet...\n");
 
         if (recvMsg(sockfd, clientMsg, 0, (struct sockaddr*)&clientAddr,
                          &addrLen) == 0)
@@ -114,10 +140,18 @@ int main(int argc, char* argv[])
         }
         else
         {
-          // TODO: Call noise function to determine if packet is corrupted or
-          // lost
-
+          if (isLost)
+            continue;
           fprintf(stdout, "* Incoming message: %s\n", clientMsg.c_str());
+          fprintf(stdout, "* Computing checksum...\n");
+
+          if (simulatePacketLossCorruption(corruptProb))
+          {
+            fprintf(stdout, "* Packet is corrupted!\n");
+            continue;
+          }
+
+          fprintf(stdout, "* Packet is intact!\n");
 
           // Process client message
           typeValue = parseMsg(clientMsg);
@@ -143,7 +177,7 @@ int main(int argc, char* argv[])
           else if (msgType == ACK)
           {
             sequence = atoi(typeValue.second.c_str());
-            fprintf(stdout, "* Processing ACK(s)...\n");
+            fprintf(stdout, "* Processing ACK...\n");
             processAck(&clientReq->sequenceSpace, sequence);
           }
           else // Message with unknown format
@@ -212,10 +246,10 @@ int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
     if (n <= 0)
       break;
     p += n;
-    fprintf(stdout, "* %d bytes sent to client\n", (int)n);
+    //fprintf(stdout, "* %d bytes sent to client\n", (int)n);
     length -= n;
   }
-  return (n > 0) ? 0 : -1;
+  return (n > 0) ? n : -1;
 }
 
 pair<MessageType, string> parseMsg(string message)
@@ -377,7 +411,8 @@ void sendPackets(AckSpace* sequenceSpace, int windowSize, int sockfd,
     gettimeofday(&now, NULL);
     indexTime = make_pair(i, now);
     sequenceSpace->sentUnacked.push_back(indexTime);
-    fprintf(stdout, "* Sent SEQ %d\n", sequenceSpace->seqNums[i].sequence);
+    fprintf(stdout, "* SEQ %d (%d B) sent\n",
+      sequenceSpace->seqNums[i].sequence, n);
 
     sequenceSpace->windowSize += curPacket.size();
     sequenceSpace->nextSeq++;
@@ -424,6 +459,8 @@ void checkTimeout()
     if (diff >= ACK_TIMEOUT) // Resend packet
     {
       fprintf(stdout, "* Timeout for SEQ %d!\n",
+        clientReq->sequenceSpace.seqNums[index].sequence);
+      fprintf(stdout, "* Resending SEQ %d...\n",
         clientReq->sequenceSpace.seqNums[index].sequence);
       nTimedOut++;
       n = sendMsg(sockfd, packetData.c_str(), packetData.size(), 0, destAddr,
