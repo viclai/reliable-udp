@@ -123,7 +123,8 @@ int main(int argc, char* argv[])
       if (FD_ISSET(sockfd, &readFds))
       {
         fprintf(stdout, "*\n");
-        if (simulatePacketLossCorruption(lossProb))
+        if (clientReq->filemeta.name != "" &&
+            simulatePacketLossCorruption(lossProb))
         {
           fprintf(stdout, "* Lost packet!\n");
           isLost = true;
@@ -145,7 +146,8 @@ int main(int argc, char* argv[])
           fprintf(stdout, "* Incoming message: %s\n", clientMsg.c_str());
           fprintf(stdout, "* Computing checksum...\n");
 
-          if (simulatePacketLossCorruption(corruptProb))
+          if (clientReq->filemeta.name != "" &&
+              simulatePacketLossCorruption(corruptProb))
           {
             fprintf(stdout, "* Packet is corrupted!\n");
             continue;
