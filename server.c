@@ -99,6 +99,7 @@ int main(int argc, char* argv[])
   addrLen = sizeof(clientAddr);
 
   clientReq = new SRInfo;
+  clientReq->sequenceSpace.cwnd = windowSize;
   while (true)
   {
     FD_ZERO(&readFds);
@@ -116,6 +117,7 @@ int main(int argc, char* argv[])
     {
       delete clientReq;
       clientReq = new SRInfo;
+      clientReq->sequenceSpace.cwnd = windowSize;
       continue;
     }
     else
@@ -196,7 +198,7 @@ int main(int argc, char* argv[])
           }
 
           // Send packets if window is not full
-          sendPackets(&clientReq->sequenceSpace, windowSize, sockfd,
+          sendPackets(&clientReq->sequenceSpace, sockfd,
                       (struct sockaddr*)&clientAddr, addrLen);
         }
       }
@@ -321,7 +323,8 @@ void createSegments()
   if (fileSize == 0)
   {
     header = "SEQ: " + to_string(curSequence) + "\n" +
-             "File Size: " + to_string(fileSize) + "B\n\n";
+             "File Size: " + to_string(fileSize) + "B\n" + 
+             "CWND: " + to_string(clientReq->sequenceSpace.cwnd) + "B\n\n";
     segmentData = header;
 
     segment.sequence = curSequence;
@@ -333,7 +336,8 @@ void createSegments()
   while (curFilePos < fileSize)
   {
     header = "SEQ: " + to_string(curSequence) + "\n" +
-             "File Size: " + to_string(fileSize) + "B\n\n";
+             "File Size: " + to_string(fileSize) + "B\n" + 
+             "CWND: " + to_string(clientReq->sequenceSpace.cwnd) + "B\n\n";
     dataLen = MAX_PACKET_SIZE - header.size();
     segmentData = header +
                   clientReq->filemeta.content.substr(curFilePos, dataLen);
@@ -386,7 +390,7 @@ void processAck(AckSpace* sequenceSpace, int n)
   return;
 }
 
-void sendPackets(AckSpace* sequenceSpace, int windowSize, int sockfd,
+void sendPackets(AckSpace* sequenceSpace, int sockfd,
                  struct sockaddr* destAddr, socklen_t destLen)
 {
   int i, n, diff;
@@ -394,12 +398,12 @@ void sendPackets(AckSpace* sequenceSpace, int windowSize, int sockfd,
   string curPacket;
   pair<int, struct timeval> indexTime;
 
-  while (sequenceSpace->windowSize < windowSize &&
+  while (sequenceSpace->windowSize < sequenceSpace->cwnd &&
          sequenceSpace->nextSeq < (int)sequenceSpace->seqNums.size())
   {
     i = sequenceSpace->nextSeq;
     curPacket = sequenceSpace->seqNums[i].data;
-    diff = windowSize - sequenceSpace->windowSize;
+    diff = sequenceSpace->cwnd - sequenceSpace->windowSize;
 
     if ((int)curPacket.size() > diff)
       break;

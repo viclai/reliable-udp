@@ -46,6 +46,9 @@ struct AckSpace
   /* Current window size used */
   int windowSize;
 
+  /* Window size */
+  int cwnd;
+
   /* Points to first index of current window */
   int base;
 
@@ -129,14 +132,12 @@ void processAck(AckSpace* sequenceSpace, int n);
  * Sends packets if there is space in the current window
  * @param sequenceSpace[IN/OUT] points to an AckSpace structure containing the
  *                              packets
- * @param windowSize[IN] window size (in unit of bytes), or upper limit of
- *                       numberf of bytes that can be sent
  * @param sockfd[IN] socket file descriptor used in sendto function call
  * @param destAddr[IN] points to a sockaddr structure containing the
  *                     destination address
  * @param destLen[IN] length of the sockaddr structure pointed to by destAddr
  */
-void sendPackets(AckSpace* sequenceSpace, int windowSize, int sockfd,
+void sendPackets(AckSpace* sequenceSpace, int sockfd,
                  struct sockaddr* destAddr, socklen_t destLen);
 
 /**
