@@ -11,11 +11,17 @@
 #include <strings.h>
 #include <string.h>
 #include <errno.h>
+#include <noise.h>
+#include <vector>   
+#include <map>
 
 #define UNKNOWN_FILE_LENGTH -1
 #define MAX_PACKET_SIZE 1024
 #define pLoss   0
 #define pCorrupt 0
+#define MAX_SEQ_NUM 30720
+
+using namespace std;
 
 void error(char *msg)
 {
@@ -23,14 +29,12 @@ void error(char *msg)
     exit(0);
 }
 
-double randomNum()
-{
-    //returns random number from [0...1]
-    double num = (double)rand() / (double)RAND_MAX ;
-    //printf("prob is %f", num);
-    return num;
+int nextSeqNum(int curSeqNum) {
+     return (curSeqNum + MAX_PACKET_SIZE) % (MAX_SEQ_NUM + 1);
 }
-int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents) {
+
+int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents, int &windowSize) {
+    //printf("new buffer is\n %s\n", newBuffer);
     //stores sequence number, file size, and file contents
     //returns size of file
     
@@ -59,7 +63,8 @@ int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents) {
     memcpy(seqNumString, newBuffer + start, seqLength);
     seqNum = atoi(seqNumString);
     //printf("seq num is %d\n", seqNum);
-    
+
+
     //obtain file size
     while (1) {
         char cur = *(newBuffer + i);
@@ -73,6 +78,7 @@ int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents) {
         i++;
     }
     
+
     int length = end - start + 1;
     char* fileSizeString = (char*)malloc(length+1);
     fileSizeString[length] = '\0';
@@ -80,6 +86,28 @@ int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents) {
     fileSize = atoi(fileSizeString);
     //printf("f size is %d\n", fileSize);
     
+
+    //obtain window size 
+    i+= 1;
+    while (1) {
+        char cur = *(newBuffer + i);
+        if (cur == ':') {
+            start = i+2;
+        }
+         if (cur == 'B') {
+            end = i-1;
+            break;
+        }
+        i++;
+    }
+
+    int length_ws = end - start + 1;
+    char* windowSizeString = (char*)malloc(length_ws+1);
+    windowSizeString[length_ws] = '\0';
+    memcpy(windowSizeString, newBuffer + start, length_ws);
+    windowSize = atoi(windowSizeString);
+
+    //obtain contents
     start = i+3;
     while (1) {
         char cur = *(newBuffer + i);
@@ -145,17 +173,37 @@ int main(int argc, char* argv[])
     int fileSize = UNKNOWN_FILE_LENGTH;
     FILE *file = fopen(strcat(filename, "_1"), "wb"); //to do, fix filename
     
+    //create map of which have sequences have been received
+    map<int, int> receivedSequence;
+
+    //keep track of size of vectors
+    int maxIndex = MAX_SEQ_NUM/MAX_PACKET_SIZE + 1;
+
+    //create vector of each sequence contents
+    vector<char*> contentsinSequence(maxIndex, nullptr);
+
+    //create vector of each sequence content size
+    vector<int> contentSizeinSequence(maxIndex, 0);
+
+    //keep track of next expected seq num
+    int expSeqNum = 0;
+    
+    //keep track of window 
+    int seqInWindow = 0;
     while (fileSize == UNKNOWN_FILE_LENGTH || totalLength < fileSize) {
         memset(buffer, 0, sizeof(buffer));
-        int isLost = (randomNum() < pLoss);
-        int isCorrupt = (randomNum() < pCorrupt);
+        int isLost = simulatePacketLossCorruption(pLoss);
+        int isCorrupt = simulatePacketLossCorruption(pCorrupt);
+
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
         
         if (n == -1 || isLost) {
+            //don't send anything
             printf("packet lost\n");
             //printf("an error: %s\n", strerror(errno));
         }
         else if (isCorrupt) {
+            //don't send anything
             printf("packet is corrupt\n");
         }
         else if (n == 0) {
@@ -165,24 +213,71 @@ int main(int argc, char* argv[])
             printf("Received %d bytes\n", n);
             //printf("buffer is %s\n", buffer);
             
-            //TO DO: store file
-        
-            
             //copy buffer contents
             char* newBuffer = (char*)malloc(MAX_PACKET_SIZE);
             memcpy(newBuffer, buffer, MAX_PACKET_SIZE);
             
-        
+            
             int seqNum;
+            int windowSize;
             char* contents;
             contents = (char*)malloc(MAX_PACKET_SIZE);
             memset(contents, 0, MAX_PACKET_SIZE);
-            int contentLength = parseChunk(newBuffer, seqNum, fileSize, contents);
-            totalLength+= contentLength;
-            fwrite(contents, sizeof(char), contentLength, file);
-            printf("seqNum is %d\n", seqNum);
-            printf("file size is %d\n", fileSize);
-            printf("Contents are\n%s", contents);
+            //printf("raw message is %s\n", newBuffer);
+            int contentLength = parseChunk(newBuffer, seqNum, fileSize, contents, windowSize);
+            // if seq num already received, ignore
+
+            if (receivedSequence.find(seqNum) == receivedSequence.end()) {
+                //sequence # has not been seen before
+
+                // if not next number, save to buffer
+                if (seqNum != expSeqNum) {
+                    contentsinSequence[seqNum] = contents;
+                    contentSizeinSequence[seqNum] = fileSize;
+                }
+                else {
+                    //write to file
+                    totalLength+= contentLength;
+                    fwrite(contents, sizeof(char), contentLength, file);
+                    expSeqNum = nextSeqNum(expSeqNum);
+                    seqInWindow+= 1024;
+                    receivedSequence[seqNum] = 1;
+
+                    //write any contiguous previously stored packets
+                    while (seqInWindow < windowSize) {
+                        if (receivedSequence.find(expSeqNum) != receivedSequence.end()) {
+                            int l = contentSizeinSequence[expSeqNum];
+                            totalLength += l;
+                            fwrite(contents, sizeof(char), l, file);
+                            expSeqNum = nextSeqNum(expSeqNum);
+                            seqInWindow+=1024;
+                        }
+                        else {
+                            break;
+                        }
+                    }
+
+                    //reset vectors and map if window has been reached
+                    if (seqInWindow == windowSize) {
+                        printf("resetting window\n");
+                        contentsinSequence.clear();
+                        contentSizeinSequence.clear();
+                        receivedSequence.clear();
+                        seqInWindow = 0;
+                    }
+                }
+                
+                
+                //printf("seqNum is %d\n", seqNum);
+                //printf("file size is %d\n", fileSize);
+            }
+            else {
+                //ignore
+                printf("duplicate sq\n");
+            }
+            
+            //printf("Contents are\n%s", contents);
+            //printf("Window size is %d\n", windowSize);
             
             //send ack
             char* ack = (char*)malloc(32);
@@ -198,6 +293,8 @@ int main(int argc, char* argv[])
 
         }
     }
+
+    //print contents to file
 
     fclose(file);
     close(sockfd); //close socket
