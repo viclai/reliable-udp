@@ -56,19 +56,19 @@ int main(int argc, char* argv[])
     exit(1);
   }
 
-  corruptProb = atof(argv[3]);
-  if (corruptProb < 0.0 || corruptProb > 100.0)
-  {
-    fprintf(stderr,
-      "Probability of corruption must be between 0 and 100 inclusive\n");
-    exit(1);
-  }
-
-  lossProb = atof(argv[4]);
+  lossProb = atof(argv[3]);
   if (lossProb < 0.0 || lossProb > 100.0)
   {
     fprintf(stderr,
       "Probability of packet loss must be between 0 and 100 inclusive\n");
+    exit(1);
+  }
+
+  corruptProb = atof(argv[4]);
+  if (corruptProb < 0.0 || corruptProb > 100.0)
+  {
+    fprintf(stderr,
+      "Probability of corruption must be between 0 and 100 inclusive\n");
     exit(1);
   }
 
