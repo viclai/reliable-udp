@@ -17,8 +17,6 @@
 
 #define UNKNOWN_FILE_LENGTH -1
 #define MAX_PACKET_SIZE 1024
-#define pLoss   80
-#define pCorrupt 0
 #define MAX_SEQ_NUM 30720
 
 using namespace std;
@@ -131,8 +129,8 @@ int main(int argc, char* argv[])
   // TODO: Implement ./client localhost postNumber fileName
     
     // error handling
-    if (argc != 4) {
-        fprintf(stderr, "must provide 4 arguments");
+    if (argc != 6) {
+        fprintf(stderr, "./client [hostname] [portno] [filename] [prob loss] [prob corrupt");
         exit(0);
     }
     
@@ -140,7 +138,9 @@ int main(int argc, char* argv[])
     char *hostname = argv[1];
     int portno = atoi(argv[2]);
     char *filename =  argv[3];
-    
+    int pLoss = atof(argv[4]);
+    int pCorrupt = atof(argv[5]);
+
     //create socket
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0); //create a new socket
     if (sockfd < 0)
