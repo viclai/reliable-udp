@@ -225,8 +225,8 @@ int main(int argc, char* argv[])
             memset(contents, 0, MAX_PACKET_SIZE);
             //printf("raw message is %s\n", newBuffer);
             int contentLength = parseChunk(newBuffer, seqNum, fileSize, contents, windowSize);
-            // if seq num already received, ignore
             printf("*** SEQ %d RECEIVED ***\n", seqNum);
+            
             if (receivedSequence.find(seqNum) == receivedSequence.end()) {
                 //sequence # has not been seen before
                 receivedSequence[seqNum] = 1;
@@ -248,10 +248,12 @@ int main(int argc, char* argv[])
                         if (receivedSequence.find(expSeqNum) != receivedSequence.end()) {
                             printf(" seq %d available in buffer ", expSeqNum);
                             int l = contentSizeinSequence[expSeqNum];
-                            printf("content length is %d | ", contentLength);
+                            char* contInBuffer = contentsinSequence[expSeqNum];
+
+                            printf("content  is %s | ", contInBuffer);
 
                             totalLength += l;
-                            fwrite(contents, sizeof(char), l, file);
+                            fwrite(contInBuffer, sizeof(char), l, file);
                             expSeqNum = nextSeqNum(expSeqNum);
                             seqInWindow+=1024;
                         }
