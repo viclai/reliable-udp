@@ -1,21 +1,21 @@
 #include "server.h"
 #include "noise.h"
 
-#include <string.h>     // memset
 #include <stdlib.h>     // atoi, exit, malloc, free, atol, atof
 #include <signal.h>     // signalaction
 #include <unistd.h>     // alarm
 #include <netinet/in.h> // sockaddr_in, htons, htonl, INADDR_ANY
 #include <sys/types.h>  
 #include <errno.h>      // errno
+#include <time.h>       // struct tm
 #include <sys/select.h> // select
 #include <sys/socket.h> // socket, bind, sockaddr, AF_INET, SOCK_DGRAM
 #include <sys/time.h>   // FD_SET, FD_ISSET, FD_ZERO, gettimeofday, timeval
 #include <stdio.h>      // fprintf, fopen, ftell, fclose, fseek, rewind,
-                        // SEEK_END
+                        // SEEK_END, sprintf
 
 #include <string>       // string, to_string, c_str
-#include <cstring>      // strcpy, strchr, strstr
+#include <cstring>      // strcpy, strchr, strstr, memset
 #include <vector>       // vector
 #include <list>         // list
 #include <utility>      // pair, make_pair
@@ -168,7 +168,8 @@ int main(int argc, char* argv[])
 
             if (fileExists(&clientReq->filemeta))
             {
-              fprintf(stdout, "* Requested file exists\n");
+              fprintf(stdout, "* Requested file (%d B) exists\n",
+                clientReq->filemeta.length);
             }
             else
             {
@@ -220,7 +221,7 @@ Ack::Ack()
 
 AckSpace::AckSpace()
 {
-  windowSize = base = nextSeq = 0;
+  windowSize = windowBuffer = base = nextSeq = 0;
 }
 
 int recvMsg(int sockfd, string& msg, int flags, struct sockaddr* clientAddr,
@@ -250,7 +251,7 @@ int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
     if (n <= 0)
       break;
     p += n;
-    //fprintf(stdout, "* %d bytes sent to client\n", (int)n);
+    fprintf(stdout, "* %d bytes sent to client\n", (int)n);
     length -= n;
   }
   return (n > 0) ? n : -1;
@@ -379,9 +380,19 @@ void processAck(AckSpace* sequenceSpace, int n)
       fprintf(stdout, "* ACK %d processed\n", n);
 
       if (j == sequenceSpace->base)
-        sequenceSpace->base++;
-      if (windowSize != 0)
-        sequenceSpace->windowSize -= sequenceSpace->seqNums[j].data.size();
+      {
+        while (sequenceSpace->seqNums[sequenceSpace->base].isAcked)
+          sequenceSpace->base++;
+        sequenceSpace->windowSize -= (sequenceSpace->windowBuffer +
+          sequenceSpace->seqNums[j].data.size());
+        //fprintf(stdout, "* Window: %d\n", sequenceSpace->windowSize);
+        sequenceSpace->windowBuffer = 0;
+      }
+      else
+      {
+        sequenceSpace->windowBuffer += sequenceSpace->seqNums[j].data.size();
+        //fprintf(stdout, "* Window buffer: %d\n", sequenceSpace->windowBuffer);
+      }
       break;
     }
     i += sequenceSpace->seqNums[j].data.size();
@@ -415,6 +426,7 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
       exit(1);
     }
     gettimeofday(&now, NULL);
+    print_time();
     indexTime = make_pair(i, now);
     sequenceSpace->sentUnacked.push_back(indexTime);
     fprintf(stdout, "* SEQ %d (%d B) sent\n",
@@ -461,6 +473,7 @@ void checkTimeout()
     diff = 
       (1E6 * (now.tv_sec - it->second.tv_sec)) +
       (now.tv_usec - it->second.tv_usec);
+    print_time();
 
     if (diff >= ACK_TIMEOUT) // Resend packet
     {
@@ -490,4 +503,20 @@ void checkTimeout()
     clientReq->sequenceSpace.sentUnacked.push_back(resent[i]);
 
   return;
+}
+
+void print_time()
+{
+  struct timeval tv;
+  time_t long_time;
+  struct tm *newtime;
+  char result[128] = {0};
+
+  gettimeofday(&tv,0);
+  time(&long_time);
+  newtime = localtime(&long_time);
+  
+  sprintf(result, "%02d:%02d:%02d.%03ld", newtime->tm_hour,
+    newtime->tm_min, newtime->tm_sec, (long)tv.tv_usec / 1000);
+  fprintf(stdout, "* Time: (%s)\n", result);  
 }

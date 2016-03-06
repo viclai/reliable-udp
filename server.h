@@ -46,6 +46,9 @@ struct AckSpace
   /* Current window size used */
   int windowSize;
 
+  /* Bytes ACKed in current window excluding first packet in window */
+  int windowBuffer;
+
   /* Window size */
   int cwnd;
 
@@ -151,6 +154,11 @@ void catchAlarm(int signal);
  * time limit (timeout). Resend if so.
  */
 void checkTimeout();
+
+/**
+ * Outputs the current time in hours, minutes, seconds, and milliseconds.
+ */
+void print_time();
 
 /* Global variables */
 const int BUFFER_SIZE = 1024;
