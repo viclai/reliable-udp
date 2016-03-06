@@ -163,8 +163,6 @@ void print_time();
 /* Global variables */
 const int BUFFER_SIZE = 1024;
 const int TIMEOUT = 4;
-const int MAX_PACKET_SIZE = 1024;                   // Unit of bytes
-const int MAX_SEQUENCE = 30 * MAX_PACKET_SIZE;      // Unit of bytes
 const suseconds_t ACK_TIMEOUT = (200 * 1E-3) * 1E6; // Unit of microseconds
 const unsigned ALARM_TIME = 5;                      // Unit of seconds
 

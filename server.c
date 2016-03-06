@@ -1,4 +1,5 @@
 #include "server.h"
+#include "channel.h"
 #include "noise.h"
 
 #include <stdlib.h>     // atoi, exit, malloc, free, atol, atof
