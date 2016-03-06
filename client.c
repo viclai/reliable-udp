@@ -17,7 +17,7 @@
 
 #define UNKNOWN_FILE_LENGTH -1
 #define MAX_PACKET_SIZE 1024
-#define pLoss   0
+#define pLoss   50
 #define pCorrupt 0
 #define MAX_SEQ_NUM 30720
 
@@ -194,7 +194,7 @@ int main(int argc, char* argv[])
         memset(buffer, 0, sizeof(buffer));
         int isLost = simulatePacketLossCorruption(pLoss);
         int isCorrupt = simulatePacketLossCorruption(pCorrupt);
-
+        printf("lost: %d corrupt: %d\n", isLost, isCorrupt);
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
         
         if (n == -1 || isLost) {
@@ -233,7 +233,7 @@ int main(int argc, char* argv[])
                 // if not next number, save to buffer
                 if (seqNum != expSeqNum) {
                     contentsinSequence[seqNum] = contents;
-                    contentSizeinSequence[seqNum] = fileSize;
+                    contentSizeinSequence[seqNum] = contentLength;
                 }
                 else {
                     //write to file
@@ -244,8 +244,9 @@ int main(int argc, char* argv[])
                     receivedSequence[seqNum] = 1;
 
                     //write any contiguous previously stored packets
-                    while (seqInWindow < windowSize) {
+                    while (seqInWindow < windowSize && totalLength < fileSize) {
                         if (receivedSequence.find(expSeqNum) != receivedSequence.end()) {
+                            printf("next seq received\n");
                             int l = contentSizeinSequence[expSeqNum];
                             totalLength += l;
                             fwrite(contents, sizeof(char), l, file);
@@ -256,8 +257,10 @@ int main(int argc, char* argv[])
                             break;
                         }
                     }
+                    /*
+                    //TO DO: fix later for larger windows/ files
 
-                    //reset vectors and map if window has been reached
+                    //reset vectors and map when seq start to repeat
                     if (seqInWindow == windowSize) {
                         printf("resetting window\n");
                         contentsinSequence.clear();
@@ -265,6 +268,7 @@ int main(int argc, char* argv[])
                         receivedSequence.clear();
                         seqInWindow = 0;
                     }
+                    */
                 }
                 
                 
