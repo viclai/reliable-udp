@@ -21,6 +21,11 @@
 
 using namespace std;
 
+struct ContentDescriptor {
+   char* content;
+   int   contentSize;
+};
+
 void error(char *msg)
 {
     perror(msg);
@@ -160,7 +165,7 @@ int main(int argc, char* argv[])
     
     char* fileRequestMsg = (char*)malloc(30*sizeof(char));
     sprintf(fileRequestMsg, "File: %s", filename);
-    printf("message says %s", fileRequestMsg);
+    //printf("message says %s", fileRequestMsg);
     if (sendto(sockfd, fileRequestMsg, strlen(fileRequestMsg), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
         error("ERROR sending request");
     
@@ -173,17 +178,9 @@ int main(int argc, char* argv[])
     int fileSize = UNKNOWN_FILE_LENGTH;
     FILE *file = fopen(strcat(filename, "_1"), "wb"); //to do, fix filename
     
-    //create map of which have sequences have been received
-    map<int, int> receivedSequence;
-
-    //keep track of size of vectors
-    int maxIndex = MAX_SEQ_NUM/MAX_PACKET_SIZE + 1;
-
-    //create vector of each sequence contents
-    vector<char*> contentsinSequence(maxIndex, nullptr);
-
-    //create vector of each sequence content size
-    vector<int> contentSizeinSequence(maxIndex, 0);
+    //create map from sequence num --> contents / content size
+    //unseen sequence numbers will not be in the map
+    map<int, ContentDescriptor> receivedSequence;
 
     //keep track of next expected seq num
     int expSeqNum = 0;
@@ -199,7 +196,7 @@ int main(int argc, char* argv[])
         
         if (n == -1 || isLost) {
             //don't send anything
-            printf("packet lost\n");
+            printf("packet lost |");
             //printf("an error: %s\n", strerror(errno));
         }
         else if (isCorrupt) {
@@ -210,7 +207,7 @@ int main(int argc, char* argv[])
             printf("empty\n");
         }
         else {
-            printf("Received %d bytes\n", n);
+            //printf("Received %d bytes\n", n);
             //printf("buffer is %s\n", buffer);
             
             //copy buffer contents
@@ -223,43 +220,37 @@ int main(int argc, char* argv[])
             char* contents;
             contents = (char*)malloc(MAX_PACKET_SIZE);
             memset(contents, 0, MAX_PACKET_SIZE);
-            //printf("raw message is %s\n", newBuffer);
             int contentLength = parseChunk(newBuffer, seqNum, fileSize, contents, windowSize);
             printf("*** SEQ %d RECEIVED ***\n", seqNum);
             
             if (receivedSequence.find(seqNum) == receivedSequence.end()) {
                 //sequence # has not been seen before
-                receivedSequence[seqNum] = 1;
-                // if not next number, save to buffer
+                printf("%d is unseen sequence num | ", seqNum);
+                //store contents in temp buffer
+                ContentDescriptor c;
+                c.content = contents;
+                c.contentSize = contentLength;
+                receivedSequence[seqNum] = c;
                 if (seqNum != expSeqNum) {
-                    contentsinSequence[seqNum] = contents;
-                    contentSizeinSequence[seqNum] = contentLength;
-                    printf("storing seq %d in buffer, content length is %d | ", seqNum, contentLength);
+                    printf("%d not next expected number | ", seqNum);
+                    //printf("storing seq %d in buffer, content length is %d | ", seqNum, contentLength);
                 }
-                else {
+            else {
                     //write to file
-                    printf("writing seq %d to file | ", expSeqNum);
+                    printf("%d is next expected number | ", expSeqNum);
                     totalLength+= contentLength;
                     fwrite(contents, sizeof(char), contentLength, file);
                     expSeqNum = nextSeqNum(expSeqNum);
                     seqInWindow+= 1024;
+
                     //write any contiguous previously stored packets
-                    while (/*seqInWindow < windowSize && */totalLength < fileSize) {
-                        if (receivedSequence.find(expSeqNum) != receivedSequence.end()) {
-                            printf(" seq %d available in buffer ", expSeqNum);
-                            int l = contentSizeinSequence[expSeqNum];
-                            char* contInBuffer = contentsinSequence[expSeqNum];
-
-                            printf("content  is %s | ", contInBuffer);
-
-                            totalLength += l;
-                            fwrite(contInBuffer, sizeof(char), l, file);
+                    while (/*seqInWindow < windowSize && */totalLength < fileSize && receivedSequence.find(expSeqNum) != receivedSequence.end()) {
+                            printf(" seq %d previously stored in buffer ", expSeqNum);
+                            ContentDescriptor c = receivedSequence[expSeqNum];
+                            totalLength += c.contentSize;
+                            fwrite(c.content, sizeof(char), c.contentSize, file);
                             expSeqNum = nextSeqNum(expSeqNum);
-                            seqInWindow+=1024;
-                        }
-                        else {
-                            break;
-                        }
+                            seqInWindow+=1024; 
                     }
                     /*
                     //TO DO: fix later for larger windows/ files
@@ -300,7 +291,7 @@ int main(int argc, char* argv[])
             }
 
         }
-        printf("written %d out of %d\n", totalLength, fileSize);
+        printf(" %d / %d\n", totalLength, fileSize);
     }
 
     //print contents to file
