@@ -17,7 +17,7 @@
 
 #define UNKNOWN_FILE_LENGTH -1
 #define MAX_PACKET_SIZE 1024
-#define pLoss   50
+#define pLoss   80
 #define pCorrupt 0
 #define MAX_SEQ_NUM 30720
 
@@ -194,7 +194,7 @@ int main(int argc, char* argv[])
         memset(buffer, 0, sizeof(buffer));
         int isLost = simulatePacketLossCorruption(pLoss);
         int isCorrupt = simulatePacketLossCorruption(pCorrupt);
-        printf("lost: %d corrupt: %d\n", isLost, isCorrupt);
+        //printf("lost: %d corrupt: %d\n", isLost, isCorrupt);
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
         
         if (n == -1 || isLost) {
@@ -226,28 +226,30 @@ int main(int argc, char* argv[])
             //printf("raw message is %s\n", newBuffer);
             int contentLength = parseChunk(newBuffer, seqNum, fileSize, contents, windowSize);
             // if seq num already received, ignore
-
+            printf("*** SEQ %d RECEIVED ***\n", seqNum);
             if (receivedSequence.find(seqNum) == receivedSequence.end()) {
                 //sequence # has not been seen before
-
+                receivedSequence[seqNum] = 1;
                 // if not next number, save to buffer
                 if (seqNum != expSeqNum) {
                     contentsinSequence[seqNum] = contents;
                     contentSizeinSequence[seqNum] = contentLength;
+                    printf("storing seq %d in buffer, content length is %d | ", seqNum, contentLength);
                 }
                 else {
                     //write to file
+                    printf("writing seq %d to file | ", expSeqNum);
                     totalLength+= contentLength;
                     fwrite(contents, sizeof(char), contentLength, file);
                     expSeqNum = nextSeqNum(expSeqNum);
                     seqInWindow+= 1024;
-                    receivedSequence[seqNum] = 1;
-
                     //write any contiguous previously stored packets
-                    while (seqInWindow < windowSize && totalLength < fileSize) {
+                    while (/*seqInWindow < windowSize && */totalLength < fileSize) {
                         if (receivedSequence.find(expSeqNum) != receivedSequence.end()) {
-                            printf("next seq received\n");
+                            printf(" seq %d available in buffer ", expSeqNum);
                             int l = contentSizeinSequence[expSeqNum];
+                            printf("content length is %d | ", contentLength);
+
                             totalLength += l;
                             fwrite(contents, sizeof(char), l, file);
                             expSeqNum = nextSeqNum(expSeqNum);
@@ -291,11 +293,12 @@ int main(int argc, char* argv[])
             }
             else {
                 //printf("ack success\n");
-                printf("sent %s\n", ack);
+                printf("sent %s | ", ack);
                 count++;
             }
 
         }
+        printf("written %d out of %d\n", totalLength, fileSize);
     }
 
     //print contents to file
