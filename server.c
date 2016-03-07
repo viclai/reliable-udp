@@ -549,7 +549,7 @@ void checkTimeout()
         exit(1);
       }
       fprintf(stdout, "* Timer (%ld ms) set for SEQ %d!\n", ACK_TIMEOUT,
-        resent[i].first);
+        clientReq->sequenceSpace.seqNums[resent[i].first].sequence);
     }
   }
 
