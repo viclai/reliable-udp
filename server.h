@@ -160,12 +160,20 @@ void checkTimeout();
  */
 void print_time();
 
+/**
+ * Outputs the server's view of the current window.
+ * @param base[IN] the base index of the current window
+ * @param n[IN] the number of sequences to display in one row
+ * @param init[IN] the initial value of the window size used up
+ * @param isFirst[IN] true if this function call is the first. Otherwise, 
+ *                    false (recursive).
+ */
+void print_window(int base, int n, int init, bool isFirst);
+
 /* Global variables */
-const int BUFFER_SIZE = 1024;
-const int TIMEOUT = 4;
-const suseconds_t ACK_TIMEOUT = (200 * 1E-3) * 1E6; // Unit of microseconds
-const unsigned ALARM_TIME = 5;                      // Unit of seconds
+const long ACK_TIMEOUT = 200; // Unit of milliseconds
 
 SRInfo* clientReq;
+bool timerSet = false;
 
 #endif /* SERVER_H */

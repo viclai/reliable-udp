@@ -4,22 +4,24 @@
 
 #include <stdlib.h>     // atoi, exit, malloc, free, atol, atof
 #include <signal.h>     // signalaction
-#include <unistd.h>     // alarm
 #include <netinet/in.h> // sockaddr_in, htons, htonl, INADDR_ANY
 #include <sys/types.h>  
+#include <unistd.h>     // close
 #include <errno.h>      // errno
 #include <time.h>       // struct tm
 #include <sys/select.h> // select
 #include <sys/socket.h> // socket, bind, sockaddr, AF_INET, SOCK_DGRAM
-#include <sys/time.h>   // FD_SET, FD_ISSET, FD_ZERO, gettimeofday, timeval
+#include <sys/time.h>   // FD_SET, FD_ISSET, FD_ZERO, gettimeofday, timeval,
+                        // setitimer
 #include <stdio.h>      // fprintf, fopen, ftell, fclose, fseek, rewind,
-                        // SEEK_END, sprintf
+                        // SEEK_END
 
 #include <string>       // string, to_string, c_str
 #include <cstring>      // strcpy, strchr, strstr, memset
 #include <vector>       // vector
 #include <list>         // list
 #include <utility>      // pair, make_pair
+#include <sstream>      // ostringstream
 using namespace std;
 
 int main(int argc, char* argv[])
@@ -95,30 +97,27 @@ int main(int argc, char* argv[])
   action.sa_handler = catchAlarm;
   action.sa_flags = SA_RESTART;
   sigaction(SIGALRM, &action, NULL);
-  alarm(ALARM_TIME);
 
   addrLen = sizeof(clientAddr);
 
   clientReq = new SRInfo;
   clientReq->sequenceSpace.cwnd = windowSize;
+
   while (true)
   {
     FD_ZERO(&readFds);
     FD_SET(sockfd, &readFds);
     isLost = false;
 
-    // TODO: Timeout not set in select()
     activity = select(sockfd + 1, &readFds, NULL, NULL, NULL);
     if (activity < 0)
     {
       if (errno != EINTR)
         fprintf(stderr, "* Select error(#%d)\n", errno);
     }
-    else if (activity == 0) // Timeout
+    else if (activity == 0)
     {
-      delete clientReq;
-      clientReq = new SRInfo;
-      clientReq->sequenceSpace.cwnd = windowSize;
+      // This part should never be reached
       continue;
     }
     else
@@ -138,9 +137,11 @@ int main(int argc, char* argv[])
         if (recvMsg(sockfd, clientMsg, 0, (struct sockaddr*)&clientAddr,
                          &addrLen) == 0)
         {
-          // TODO
-          close(sockfd);
-          break;
+          delete clientReq;
+          clientReq = new SRInfo;
+          fprintf(stdout,
+            "* Client disconnected: accepting new file request\n");
+          continue;
         }
         else
         {
@@ -222,20 +223,20 @@ Ack::Ack()
 
 AckSpace::AckSpace()
 {
-  windowSize = windowBuffer = base = nextSeq = 0;
+  windowSize = windowBuffer = cwnd = base = nextSeq = 0;
 }
 
 int recvMsg(int sockfd, string& msg, int flags, struct sockaddr* clientAddr,
             socklen_t* addrLen)
 {
-  char buffer[BUFFER_SIZE];
+  char buffer[MAX_PACKET_SIZE];
   int nRead;
 
   msg = "";
-  memset(buffer, 0, BUFFER_SIZE);
+  memset(buffer, 0, MAX_PACKET_SIZE);
 
-  if ((nRead =
-           recvfrom(sockfd, buffer, BUFFER_SIZE, 0, clientAddr, addrLen)) < 0)
+  if ((nRead = recvfrom(sockfd, buffer, MAX_PACKET_SIZE, 0, clientAddr,
+       addrLen)) < 0)
     return -1;
   msg += buffer;
   return nRead;
@@ -252,7 +253,6 @@ int sendMsg(int sockfd, const void* buffer, size_t length, int flags,
     if (n <= 0)
       break;
     p += n;
-    fprintf(stdout, "* %d bytes sent to client\n", (int)n);
     length -= n;
   }
   return (n > 0) ? n : -1;
@@ -379,21 +379,20 @@ void processAck(AckSpace* sequenceSpace, int n)
       }
       sequenceSpace->seqNums[j].isAcked = true;
       fprintf(stdout, "* ACK %d processed\n", n);
+      print_window(sequenceSpace->base, 4, 0, true);
 
       if (j == sequenceSpace->base)
       {
-        while (sequenceSpace->seqNums[sequenceSpace->base].isAcked)
+        while (sequenceSpace->base < (int)sequenceSpace->seqNums.size() &&
+               sequenceSpace->seqNums[sequenceSpace->base].isAcked)
           sequenceSpace->base++;
         sequenceSpace->windowSize -= (sequenceSpace->windowBuffer +
           sequenceSpace->seqNums[j].data.size());
-        //fprintf(stdout, "* Window: %d\n", sequenceSpace->windowSize);
         sequenceSpace->windowBuffer = 0;
+        print_window(sequenceSpace->base, 4, 0, true);
       }
       else
-      {
         sequenceSpace->windowBuffer += sequenceSpace->seqNums[j].data.size();
-        //fprintf(stdout, "* Window buffer: %d\n", sequenceSpace->windowBuffer);
-      }
       break;
     }
     i += sequenceSpace->seqNums[j].data.size();
@@ -407,6 +406,7 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
 {
   int i, n, diff;
   struct timeval now;
+  struct itimerval timeout;
   string curPacket;
   pair<int, struct timeval> indexTime;
 
@@ -427,43 +427,58 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
       exit(1);
     }
     gettimeofday(&now, NULL);
-    print_time();
     indexTime = make_pair(i, now);
     sequenceSpace->sentUnacked.push_back(indexTime);
+    if (!timerSet)
+    {
+      timerSet = true;
+      timeout.it_interval.tv_sec = timeout.it_interval.tv_usec = 0;
+      timeout.it_value.tv_sec = 0;
+      timeout.it_value.tv_usec = ACK_TIMEOUT * 1E3;
+      if (setitimer(ITIMER_REAL, &timeout, NULL) == -1)
+      {
+        perror("ERROR setting timer");
+        exit(1);
+      }
+      fprintf(stdout, "* Timer (%ld ms) set!\n", ACK_TIMEOUT);
+      print_time();
+    }
     fprintf(stdout, "* SEQ %d (%d B) sent\n",
       sequenceSpace->seqNums[i].sequence, n);
 
     sequenceSpace->windowSize += curPacket.size();
     sequenceSpace->nextSeq++;
   }
-  return; // TODO: Might want to return the number of packets sent
+  return;
 }
 
 void catchAlarm(int signal)
 {
+  timerSet = false;
   fprintf(stdout, "*\n");
-  fprintf(stdout, "* Checking for timeouts...\n");
+  print_time();
   checkTimeout();
-  alarm(ALARM_TIME);
   fprintf(stdout, "*\n");
 }
 
 void checkTimeout()
 {
-  suseconds_t diff;
-  int i, n, index, sockfd, nTimedOut;
+  long diff;
+  int i, n, index, sockfd;
   struct timeval now;
+  struct itimerval timeout;
   struct sockaddr* destAddr;
   socklen_t destLen;
   string packetData;
   vector<pair<int, struct timeval> > resent;
   list<pair<int, struct timeval> >::iterator it;
+  bool hasResent;
 
   it = clientReq->sequenceSpace.sentUnacked.begin();
   sockfd = clientReq->clientInfo.sockfd;
   destAddr = clientReq->clientInfo.address;
   destLen = clientReq->clientInfo.length;
-  nTimedOut = 0;
+  hasResent = false;
 
   while (it != clientReq->sequenceSpace.sentUnacked.end())
   {
@@ -472,9 +487,8 @@ void checkTimeout()
 
     gettimeofday(&now, NULL);
     diff = 
-      (1E6 * (now.tv_sec - it->second.tv_sec)) +
-      (now.tv_usec - it->second.tv_usec);
-    print_time();
+      (1E3 * (now.tv_sec - it->second.tv_sec)) +
+      (1E-3 * (now.tv_usec - it->second.tv_usec));
 
     if (diff >= ACK_TIMEOUT) // Resend packet
     {
@@ -482,7 +496,6 @@ void checkTimeout()
         clientReq->sequenceSpace.seqNums[index].sequence);
       fprintf(stdout, "* Resending SEQ %d...\n",
         clientReq->sequenceSpace.seqNums[index].sequence);
-      nTimedOut++;
       n = sendMsg(sockfd, packetData.c_str(), packetData.size(), 0, destAddr,
                   destLen);
       if (n < 0)
@@ -490,18 +503,46 @@ void checkTimeout()
         perror("ERROR sending to client address");
         exit(1);
       }
-      
+
       gettimeofday(&now, NULL);
       it = clientReq->sequenceSpace.sentUnacked.erase(it);
       resent.push_back(make_pair(index, now));
+      hasResent = true;
       continue;
+    }
+    else if (hasResent)
+    {
+      timerSet = true;
+      timeout.it_interval.tv_sec = timeout.it_interval.tv_usec = 0;
+      timeout.it_value.tv_sec = 0;
+      timeout.it_value.tv_usec = (ACK_TIMEOUT - diff) * 1E3;
+      if (setitimer(ITIMER_REAL, &timeout, NULL) == -1)
+      {
+        perror("ERROR setting timer");
+        exit(1);
+      }
+      break;
     }
 
     it++;
   }
 
   for (i = 0; i < (int)resent.size(); i++)
+  {
     clientReq->sequenceSpace.sentUnacked.push_back(resent[i]);
+    if (!timerSet)
+    {
+      timerSet = true;
+      timeout.it_interval.tv_sec = timeout.it_interval.tv_usec = 0;
+      timeout.it_value.tv_sec = 0;
+      timeout.it_value.tv_usec = ACK_TIMEOUT * 1E3;
+      if (setitimer(ITIMER_REAL, &timeout, NULL) == -1)
+      {
+        perror("ERROR setting timer");
+        exit(1);
+      }
+    }
+  }
 
   return;
 }
@@ -520,4 +561,149 @@ void print_time()
   sprintf(result, "%02d:%02d:%02d.%03ld", newtime->tm_hour,
     newtime->tm_min, newtime->tm_sec, (long)tv.tv_usec / 1000);
   fprintf(stdout, "* Time: (%s)\n", result);  
+}
+
+void print_window(int base, int n, int init, bool isFirst)
+{
+  int i, j, k, m, len, windowSize, sequence, nSeq;
+  string seqLine;
+  ostringstream lines[5];
+
+  windowSize = clientReq->sequenceSpace.cwnd;
+  j = base;
+  nSeq = 0;
+
+  // Beginning
+  if (isFirst)
+  {
+    fprintf(stdout, "*\n");
+    fprintf(stdout, "* %d/%d bytes used in window\n",
+      clientReq->sequenceSpace.windowSize, windowSize);
+  }
+
+  if (j != 0)
+  {
+    lines[0] << "*-------";
+    lines[1] << "*       ";
+    lines[2] << "*  ...  ";
+    lines[3] << "*       ";
+    lines[4] << "*-------";
+  }
+
+  if (j == (int)clientReq->sequenceSpace.seqNums.size())
+    j--; // Show last sequence ACKed
+
+  for (i = init;
+       nSeq < n && j < (int)clientReq->sequenceSpace.seqNums.size() &&
+       i < windowSize; j++)
+  {
+    sequence = clientReq->sequenceSpace.seqNums[j].sequence;
+    seqLine = "|  " + to_string(sequence) + "  ";
+    len = seqLine.size() - 5;
+
+    for (k = 0; k < 5; k++)
+    {
+      if (k == 2)
+        lines[k] << seqLine;
+      else if (k == 0 || k == 4)
+      {
+        lines[k] << "*--";
+        for (m = 0; m < len; m++)
+          lines[k] << "-";
+        lines[k] << "--";
+      }
+      else if (k == 1)
+      {
+        if (len == 1)
+          lines[k] << "| SEQ ";
+        else if (len % 2 == 0)
+        {
+          if (n != 2)
+            lines[k] << "|  ";
+          for (m = 0; m < (len / 2) - 2; m++)
+            lines[k] << " ";
+          lines[k] << "SEQ";
+          for (m = 0; m < (len / 2) - 1; m++)
+            lines[k] << " ";
+          lines[k] << "  ";
+        }
+        else
+        {
+          lines[k] << "|  ";
+          for (m = 0; m < (len / 2) - 1; m++)
+            lines[k] << " ";
+          lines[k] << "SEQ";
+          for (m = 0; m < (len / 2) - 1; m++)
+            lines[k] << " ";
+          lines[k] << "  ";
+        }
+      }
+      else // k == 3
+      {
+        if (len == 1)
+        {
+          if (clientReq->sequenceSpace.seqNums[j].isAcked)
+            lines[k] << "| ACK ";
+          else
+            lines[k] << "|     ";
+        }
+        else if (len % 2 == 0)
+        {
+          if (len != 2)
+            lines[k] << "|  ";
+          for (m = 0; m < (len / 2) - 2; m++)
+            lines[k] << " ";
+          if (clientReq->sequenceSpace.seqNums[j].isAcked)
+            lines[k] << "ACK";
+          else
+            lines[k] << "   ";
+          for (m = 0; m < (len / 2) - 1; m++)
+            lines[k] << " ";
+          lines[k] << "  ";
+        }
+        else
+        {
+          lines[k] << "|  ";
+          for (m = 0; m < (len / 2) - 1; m++)
+            lines[k] << " ";
+          if (clientReq->sequenceSpace.seqNums[j].isAcked)
+            lines[k] << "ACK";
+          else
+            lines[k] << "   ";
+          for (m = 0; m < (len / 2) - 1; m++)
+            lines[k] << " ";
+          lines[k] << "  ";
+        }
+      }
+    }
+
+    nSeq++;
+    i += clientReq->sequenceSpace.seqNums[j].data.size();
+  }
+
+  if (j != (int)clientReq->sequenceSpace.seqNums.size())
+  {
+    lines[0] << "*-------*";
+    lines[1] << "|       |";
+    lines[2] << "|  ...  |";
+    lines[3] << "|       |";
+    lines[4] << "*-------*";
+  }
+  else
+  {
+    lines[0] << "*";
+    lines[1] << "|";
+    lines[2] << "|";
+    lines[3] << "|";
+    lines[4] << "*";
+  }
+
+  for (m = 0; m < 5; m++)
+    fprintf(stdout, "%s\n", lines[m].str().c_str());
+
+  // End
+  fprintf(stdout, "*\n");
+
+  if (i < windowSize && j < (int)clientReq->sequenceSpace.seqNums.size())
+    print_window(j, n, i, false);
 }
