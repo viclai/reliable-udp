@@ -372,7 +372,14 @@ void processAck(AckSpace* sequenceSpace, int n)
         // Remove sequence from sentUnacked list
         if (sequenceSpace->seqNums[it->first].sequence == n)
         {
-          sequenceSpace->sentUnacked.erase(it);
+          if (it == sequenceSpace->sentUnacked.begin())
+          {
+            sequenceSpace->sentUnacked.erase(it);
+            timerSet = false;
+            checkTimeout();
+          }
+          else
+            sequenceSpace->sentUnacked.erase(it);
           break;
         }
         it++;
@@ -440,7 +447,8 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
         perror("ERROR setting timer");
         exit(1);
       }
-      fprintf(stdout, "* Timer (%ld ms) set!\n", ACK_TIMEOUT);
+      fprintf(stdout, "* Timer (%ld ms) set for SEQ %d!\n", ACK_TIMEOUT,
+        sequenceSpace->seqNums[i].sequence);
       print_time();
     }
     fprintf(stdout, "* SEQ %d (%d B) sent\n",
@@ -472,13 +480,11 @@ void checkTimeout()
   string packetData;
   vector<pair<int, struct timeval> > resent;
   list<pair<int, struct timeval> >::iterator it;
-  bool hasResent;
 
   it = clientReq->sequenceSpace.sentUnacked.begin();
   sockfd = clientReq->clientInfo.sockfd;
   destAddr = clientReq->clientInfo.address;
   destLen = clientReq->clientInfo.length;
-  hasResent = false;
 
   while (it != clientReq->sequenceSpace.sentUnacked.end())
   {
@@ -507,10 +513,9 @@ void checkTimeout()
       gettimeofday(&now, NULL);
       it = clientReq->sequenceSpace.sentUnacked.erase(it);
       resent.push_back(make_pair(index, now));
-      hasResent = true;
       continue;
     }
-    else if (hasResent)
+    else if (!timerSet)
     {
       timerSet = true;
       timeout.it_interval.tv_sec = timeout.it_interval.tv_usec = 0;
@@ -521,6 +526,8 @@ void checkTimeout()
         perror("ERROR setting timer");
         exit(1);
       }
+      fprintf(stdout, "* Timer (%ld ms) set for SEQ %d!\n", ACK_TIMEOUT - diff,
+        clientReq->sequenceSpace.seqNums[index].sequence);
       break;
     }
 
@@ -541,6 +548,8 @@ void checkTimeout()
         perror("ERROR setting timer");
         exit(1);
       }
+      fprintf(stdout, "* Timer (%ld ms) set for SEQ %d!\n", ACK_TIMEOUT,
+        resent[i].first);
     }
   }
 
