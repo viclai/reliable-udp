@@ -109,6 +109,8 @@ int main(int argc, char* argv[])
     FD_SET(sockfd, &readFds);
     isLost = false;
 
+    print_time();
+    fprintf(stdout, "* Waiting on select()\n");
     activity = select(sockfd + 1, &readFds, NULL, NULL, NULL);
     if (activity < 0)
     {
@@ -132,7 +134,10 @@ int main(int argc, char* argv[])
           isLost = true;
         }
         else
+        {
+          print_time();
           fprintf(stdout, "* Receiving a packet...\n");
+        }
 
         if (recvMsg(sockfd, clientMsg, 0, (struct sockaddr*)&clientAddr,
                          &addrLen) == 0)
@@ -147,6 +152,7 @@ int main(int argc, char* argv[])
         {
           if (isLost)
             continue;
+          print_time();
           fprintf(stdout, "* Incoming message: %s\n", clientMsg.c_str());
           fprintf(stdout, "* Computing checksum...\n");
 
@@ -184,6 +190,7 @@ int main(int argc, char* argv[])
           else if (msgType == ACK)
           {
             sequence = atoi(typeValue.second.c_str());
+            print_time();
             fprintf(stdout, "* Processing ACK...\n");
             processAck(&clientReq->sequenceSpace, sequence);
           }
@@ -203,6 +210,8 @@ int main(int argc, char* argv[])
           // Send packets if window is not full
           sendPackets(&clientReq->sequenceSpace, sockfd,
                       (struct sockaddr*)&clientAddr, addrLen);
+          fprintf(stdout, "%d packets in queue, timerSet = %d\n",
+            (int)clientReq->sequenceSpace.sentUnacked.size(), (int)timerSet);
         }
       }
     }
@@ -223,7 +232,7 @@ Ack::Ack()
 
 AckSpace::AckSpace()
 {
-  windowSize = windowBuffer = cwnd = base = nextSeq = 0;
+  windowSize = /*windowBuffer = */cwnd = base = nextSeq = 0;
 }
 
 int recvMsg(int sockfd, string& msg, int flags, struct sockaddr* clientAddr,
@@ -374,8 +383,9 @@ void processAck(AckSpace* sequenceSpace, int n)
         {
           if (it == sequenceSpace->sentUnacked.begin())
           {
+            fprintf(stdout, "* Removing first packet from queue\n");
             sequenceSpace->sentUnacked.erase(it);
-            timerSet = false;
+            timerSet = false; // TODO
             checkTimeout();
           }
           else
@@ -388,23 +398,24 @@ void processAck(AckSpace* sequenceSpace, int n)
       fprintf(stdout, "* ACK %d processed\n", n);
       print_window(sequenceSpace->base, 4, 0, true);
 
+      /* Slide window if packet ACKed is at the base */
       if (j == sequenceSpace->base)
       {
         while (sequenceSpace->base < (int)sequenceSpace->seqNums.size() &&
                sequenceSpace->seqNums[sequenceSpace->base].isAcked)
+        {
+          sequenceSpace->windowSize -=
+            sequenceSpace->seqNums[sequenceSpace->base].data.size();
           sequenceSpace->base++;
-        sequenceSpace->windowSize -= (sequenceSpace->windowBuffer +
-          sequenceSpace->seqNums[j].data.size());
-        sequenceSpace->windowBuffer = 0;
+        }
         print_window(sequenceSpace->base, 4, 0, true);
       }
-      else
-        sequenceSpace->windowBuffer += sequenceSpace->seqNums[j].data.size();
       break;
     }
     i += sequenceSpace->seqNums[j].data.size();
   }
 
+  print_time();
   return;
 }
 
@@ -510,8 +521,8 @@ void checkTimeout()
         exit(1);
       }
 
-      gettimeofday(&now, NULL);
       it = clientReq->sequenceSpace.sentUnacked.erase(it);
+      gettimeofday(&now, NULL);
       resent.push_back(make_pair(index, now));
       continue;
     }
@@ -534,6 +545,8 @@ void checkTimeout()
     it++;
   }
 
+  /* For any packet that timed out and got resent, push those to the back
+   * of the queue */
   for (i = 0; i < (int)resent.size(); i++)
   {
     clientReq->sequenceSpace.sentUnacked.push_back(resent[i]);
@@ -551,6 +564,16 @@ void checkTimeout()
       fprintf(stdout, "* Timer (%ld ms) set for SEQ %d!\n", ACK_TIMEOUT,
         clientReq->sequenceSpace.seqNums[resent[i].first].sequence);
     }
+
+    fprintf(stdout, "* Queue: ");
+    it = clientReq->sequenceSpace.sentUnacked.begin();
+    while (it != clientReq->sequenceSpace.sentUnacked.end())
+    {
+      fprintf(stdout, "%d ",
+        clientReq->sequenceSpace.seqNums[it->first].sequence);
+      it++;
+    }
+    fprintf(stdout, "\n");
   }
 
   return;
@@ -569,7 +592,8 @@ void print_time()
   
   sprintf(result, "%02d:%02d:%02d.%03ld", newtime->tm_hour,
     newtime->tm_min, newtime->tm_sec, (long)tv.tv_usec / 1000);
-  fprintf(stdout, "* Time: (%s)\n", result);  
+  fprintf(stdout, "* Time: (%s)\n", result);
+  return;
 }
 
 void print_window(int base, int n, int init, bool isFirst)
@@ -710,9 +734,9 @@ void print_window(int base, int n, int init, bool isFirst)
   for (m = 0; m < 5; m++)
     fprintf(stdout, "%s\n", lines[m].str().c_str());
 
-  // End
-  fprintf(stdout, "*\n");
-
   if (i < windowSize && j < (int)clientReq->sequenceSpace.seqNums.size())
     print_window(j, n, i, false);
+  if (isFirst)
+    fprintf(stdout, "*\n");
+  return;
 }

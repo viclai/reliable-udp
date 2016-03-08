@@ -46,9 +46,6 @@ struct AckSpace
   /* Current window size used */
   int windowSize;
 
-  /* Bytes ACKed in current window excluding first packet in window */
-  int windowBuffer;
-
   /* Window size */
   int cwnd;
 
