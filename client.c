@@ -1,34 +1,28 @@
-//PROJECT 2
-
-#include <stdio.h>      // fprintf
-#include <stdlib.h>     // atoi
-#include <unistd.h>     // getopt
-#include <netinet/in.h> // sockaddr_in, htons, INADDR_ANY
-#include <sys/socket.h> // socket, bind, sockaddr
-
-#include <sys/types.h>
-#include <netdb.h>      // define structures like hostent
-#include <strings.h>
-#include <string.h>
-#include <errno.h>
 #include <noise.h>
 #include <channel.h>
 
-#include <vector>   
-#include <map>
+#include <stdio.h>      // printf, fprintf, fclose, perror, fopen, sprintf
+#include <stdlib.h>     // atoi, atof, exit, malloc, free
+#include <unistd.h>     // close
+#include <netinet/in.h> // sockaddr_in, htons, INADDR_ANY
+#include <netdb.h>      // gethostbyname
+#include <sys/socket.h> // socket, bind, sockaddr, AF_INET, SOCK_DGRAM, recvfrom, sendto
+#include <strings.h>    // bcopy
+#include <string.h>     // memset, memcpy, strcat
+#include <errno.h>      // errno
+
+#include <vector>       // vector
+#include <map>          // map
+using namespace std;
 
 #define UNKNOWN_FILE_LENGTH -1
-//#define MAX_PACKET_SIZE 1024
-//#define MAX_SEQUENCE 30720
-//#define MAX_SEQUENCE 2048 // for testing
-using namespace std;
 
 struct ContentDescriptor {
    char* content;
    int   contentSize;
 };
 
-void error(char *msg)
+void error(const char *msg)
 {
     perror(msg);
     exit(0);
@@ -43,7 +37,7 @@ int seqInWindowRange(int start, int windowSize, int seq) {
     //return 0 otherwise
     //accounts for wrapping around
     int end = (start + windowSize) % (MAX_SEQUENCE + 1);
-    printf(" Window from %d to %d\n", start, end);
+    //printf(" Window from %d to %d\n", start, end);
 
     if (start < end) {
         return (seq >= start && seq <= end);
@@ -153,13 +147,14 @@ int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents, int &
     //contents[contentLength] = '\0';
     //printf("contents\n%s\n", contents);
     
+    free(windowSizeString);
+    free(fileSizeString);
+    free(seqNumString);
     return contentLength;
 }
 
 int main(int argc, char* argv[])
 {
-  // TODO: Implement ./client localhost postNumber fileName
-    
     // error handling
     if (argc != 6) {
         fprintf(stderr, "./client [hostname] [portno] [filename] [prob loss] [prob corrupt");
@@ -178,7 +173,7 @@ int main(int argc, char* argv[])
     if (sockfd < 0)
         error("ERROR opening socket");
     
-     struct hostent *server = gethostbyname(hostname);
+    struct hostent *server = gethostbyname(hostname);
     if (server == NULL) {
         fprintf(stderr,"ERROR, no such host\n");
         exit(0);
@@ -196,6 +191,7 @@ int main(int argc, char* argv[])
     if (sendto(sockfd, fileRequestMsg, strlen(fileRequestMsg), 0, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
         error("ERROR sending request");
     
+    free(fileRequestMsg);
     printf("Sent request for file w/o local error %s\n", filename);
     
     char buffer[MAX_PACKET_SIZE];
@@ -210,10 +206,10 @@ int main(int argc, char* argv[])
     map<int, ContentDescriptor> receivedSequence;
 
     //keep track of next expected seq num
-    int expSeqNum = 0;
+    //int expSeqNum = 0;
     
     //keep track of window 
-    int seqInWindow = 0;
+    //int seqInWindow = 0;
 
     //window start 
     int windowStart = 0;
@@ -230,12 +226,12 @@ int main(int argc, char* argv[])
         
         if (n == -1 || isLost) {
             //don't send anything
-            printf("packet lost |");
+            printf("Packet lost |");
             //printf("an error: %s\n", strerror(errno));
         }
         else if (isCorrupt) {
             //don't send anything
-            printf("packet is corrupt");
+            printf("Packet is corrupt");
         }
         else if (n == 0) {
             printf("empty\n");
@@ -277,7 +273,7 @@ int main(int argc, char* argv[])
 
                     //write any contiguous previously stored packets
                     while (totalLength < fileSize && receivedSequence.find(windowStart) != receivedSequence.end()) {
-                            printf(" seq %d previously stored in buffer \n", windowStart);
+                            //printf(" seq %d previously stored in buffer \n", windowStart);
                             ContentDescriptor c = receivedSequence[windowStart];
                             totalLength += c.contentSize;
                             fwrite(c.content, sizeof(char), c.contentSize, file);
@@ -291,7 +287,7 @@ int main(int argc, char* argv[])
             }
             else {
                 //ignore
-                printf("duplicate sq\n");
+                //printf("duplicate sq\n");
             }
             
             //printf("Contents are\n%s", contents);
@@ -305,12 +301,15 @@ int main(int argc, char* argv[])
             }
             else {
                 //printf("ack success\n");
-                printf("sent %s \n", ack);
+                printf("Sent %s \n", ack);
                 count++;
             }
-
+            
+            free(ack);
+            free(contents);
+            free(newBuffer);
         }
-        printf(" %d / %d\n", totalLength, fileSize);
+        printf("%d / %d\n", totalLength, fileSize);
     }
 
     //print contents to file

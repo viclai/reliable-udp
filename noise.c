@@ -1,37 +1,34 @@
 #include "noise.h"
 
-#include <stdio.h> // fprintf
+#include <time.h>     // tm, localtime, time
+#include <sys/time.h> // timeval, gettimeofday
 
-#include <cstdlib> // srand, rand
-#include <ctime>   // time
-#include <sstream>
-#include <sys/time.h>
-#include <time.h>
-#include <string>
+#include <cstdlib>    // srand, rand
+#include <sstream>    // ostringstream
+#include <string>     // stoul
+
+using namespace std;
 
 bool simulatePacketLossCorruption(double prob)
 {
   int x, r;
-
-  if (prob < 0 || prob > 100)
-    return false;
-
   struct timeval tv;
   time_t long_time;
   struct tm *newtime;
 
+  if (prob < 0 || prob > 100)
+    return false;
+
   gettimeofday(&tv,0);
   time(&long_time);
   newtime = localtime(&long_time);
-  std::ostringstream os;
+  ostringstream os;
   os << newtime->tm_hour << newtime->tm_min << newtime->tm_sec
      << tv.tv_usec;
-  srand(std::stoul(os.str(), nullptr));
-  //srand(time(NULL));
+  srand(stoul(os.str(), nullptr));
 
   x = (int)prob;
   r = rand() % 100;
-  //fprintf(stdout, "* Prob = %d, Rand = %d\n", x, r);
 
   if (r <= x - 1)
     return true;

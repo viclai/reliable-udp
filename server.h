@@ -153,9 +153,16 @@ void catchAlarm(int signal);
 void checkTimeout();
 
 /**
- * Outputs the current time in hours, minutes, seconds, and milliseconds.
+ * Frees up the same allocated for clientReq.
  */
-void print_time();
+void freeClient(int signal);
+
+/**
+ * Outputs the current time in hours (h), minutes (m), seconds (s), and
+ * milliseconds (l).
+ * @return current time in (hh:mm:ss.ll) string format
+ */
+std::string get_time();
 
 /**
  * Outputs the server's view of the current window.
@@ -170,7 +177,7 @@ void print_window(int base, int n, int init, bool isFirst);
 /* Global variables */
 const long ACK_TIMEOUT = 200; // Unit of milliseconds
 
-SRInfo* clientReq;
+SRInfo* clientReq = NULL;
 bool timerSet = false;
 
 #endif /* SERVER_H */
