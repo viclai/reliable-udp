@@ -111,6 +111,8 @@ int main(int argc, char* argv[])
     FD_SET(sockfd, &readFds);
     isLost = false;
 
+    if (timeout_flag)
+      alertTimeout();
     activity = select(sockfd + 1, &readFds, NULL, NULL, NULL);
     if (activity < 0)
     {
@@ -126,7 +128,11 @@ int main(int argc, char* argv[])
     {
       if (FD_ISSET(sockfd, &readFds))
       {
-        //fprintf(stdout, "*\n");
+        if (timeout_flag)
+          alertTimeout();
+        else
+          fprintf(stdout, "*\n");
+
         if (clientReq->filemeta.name != "" &&
             simulatePacketLossCorruption(lossProb))
         {
@@ -134,7 +140,7 @@ int main(int argc, char* argv[])
           isLost = true;
         }
         else
-          //fprintf(stdout, "* Receiving a packet...\n");
+          fprintf(stdout, "* Receiving a packet...\n");
 
         if ((ret = recvMsg(sockfd, clientMsg, 0, (struct sockaddr*)&clientAddr,
                          &addrLen)) == 0)
@@ -155,9 +161,11 @@ int main(int argc, char* argv[])
         {
           if (isLost)
             continue;
+          if (timeout_flag)
+            alertTimeout();
           fprintf(stdout, "* %s Incoming message: %s\n", get_time().c_str(),
             clientMsg.c_str());
-          //fprintf(stdout, "* Computing checksum...\n");
+          fprintf(stdout, "* Computing checksum...\n");
 
           if (clientReq->filemeta.name != "" &&
               simulatePacketLossCorruption(corruptProb))
@@ -166,7 +174,10 @@ int main(int argc, char* argv[])
             continue;
           }
 
-          //fprintf(stdout, "* Packet is intact!\n");
+          fprintf(stdout, "* Packet is intact!\n");
+
+          if (timeout_flag)
+            alertTimeout();
 
           // Process client message
           typeValue = parseMsg(clientMsg);
@@ -179,22 +190,24 @@ int main(int argc, char* argv[])
 
             if (fileExists(&clientReq->filemeta))
             {
-              //fprintf(stdout, "* Requested file (%d B) exists\n",
-                //clientReq->filemeta.length);
+              fprintf(stdout, "* Requested file (%d B) exists\n",
+                clientReq->filemeta.length);
             }
             else
             {
-              //fprintf(stdout, "* Requested file does not exist\n");
+              fprintf(stdout, "* Requested file does not exist\n");
             }
-            //fprintf(stdout, "* Preparing packet(s) for '%s'...\n",
-              //clientReq->filemeta.name.c_str());
+            fprintf(stdout, "* Preparing packet(s) for '%s'...\n",
+              clientReq->filemeta.name.c_str());
             createSegments();
           }
           else if (msgType == ACK)
           {
             sequence = atoi(typeValue.second.c_str());
-            //fprintf(stdout, "* %s Processing ACK...\n", get_time().c_str());
+            fprintf(stdout, "* %s Processing ACK...\n", get_time().c_str());
             processAck(&clientReq->sequenceSpace, sequence);
+            if (timeout_flag)
+              alertTimeout();
           }
           else // Message with unknown format
           {
@@ -212,6 +225,8 @@ int main(int argc, char* argv[])
           // Send packets if window is not full
           sendPackets(&clientReq->sequenceSpace, sockfd,
                       (struct sockaddr*)&clientAddr, addrLen);
+          if (timeout_flag)
+            alertTimeout();
         }
       }
     }
@@ -475,9 +490,32 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
 void catchAlarm(int signal)
 {
   timerSet = false;
-  //fprintf(stdout, "* \n");
+  timeout_flag = 1;
   checkTimeout();
-  //fprintf(stdout, "*\n");
+  
+}
+
+void alertTimeout()
+{
+  vector<pair<int, string> >::iterator it;
+
+  it = clientReq->sequenceSpace.timedOut.begin();
+
+  if (it != clientReq->sequenceSpace.timedOut.end())
+    fprintf(stdout, "*\n");
+  else
+    return;
+  
+  while (it != clientReq->sequenceSpace.timedOut.end())
+  {
+    fprintf(stdout, "* %s SEQ %d has been resent due to timeout!\n",
+      it->second.c_str(),
+      clientReq->sequenceSpace.seqNums[it->first].sequence);
+    it = clientReq->sequenceSpace.timedOut.erase(it);
+  }
+  fprintf(stdout, "*\n");
+  timeout_flag = 0;
+  return;
 }
 
 void checkTimeout()
@@ -509,8 +547,9 @@ void checkTimeout()
 
     if (diff >= ACK_TIMEOUT) // Resend packet
     {
-      fprintf(stdout, "* %s Timeout for SEQ %d! Resending packet...\n",
-        get_time().c_str(), clientReq->sequenceSpace.seqNums[index].sequence);
+      clientReq->sequenceSpace.timedOut.push_back(
+        make_pair(index, get_time())
+      );
       n = sendMsg(sockfd, packetData.c_str(), packetData.size(), 0, destAddr,
                   destLen);
       if (n < 0)
@@ -535,9 +574,6 @@ void checkTimeout()
         perror("ERROR setting timer");
         exit(1);
       }
-      //fprintf(stdout, "* Timer (%ld us) set for SEQ %d!\n",
-        //timeout.it_value.tv_usec, 
-        //clientReq->sequenceSpace.seqNums[index].sequence);
       break;
     }
 
@@ -560,20 +596,7 @@ void checkTimeout()
         perror("ERROR setting timer");
         exit(1);
       }
-      //fprintf(stdout, "* Timer (%ld us) set for SEQ %d!\n",
-        //timeout.it_value.tv_usec,
-        //clientReq->sequenceSpace.seqNums[resent[i].first].sequence);
     }
-
-    //fprintf(stdout, "* Queue: ");
-    //it = clientReq->sequenceSpace.sentUnacked.begin();
-    //while (it != clientReq->sequenceSpace.sentUnacked.end())
-    //{
-      //fprintf(stdout, "%d ",
-        //clientReq->sequenceSpace.seqNums[it->first].sequence);
-      //it++;
-    //}
-    //fprintf(stdout, "\n");
   }
 
   return;
@@ -581,7 +604,6 @@ void checkTimeout()
 
 void freeClient(int signal)
 {
-  //fprintf(stdout, "* Cleaning up before terminating\n");
   if (clientReq != NULL)
     delete clientReq;
   exit(0);

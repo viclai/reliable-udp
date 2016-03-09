@@ -3,6 +3,8 @@
 
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <signal.h>
+
 #include <string>
 #include <vector>
 #include <utility>
@@ -57,6 +59,10 @@ struct AckSpace
 
   /* Container of indexes of packets sent but un-ACKed */
   std::list<std::pair<int, struct timeval> > sentUnacked;
+
+  /* Container of tuples of indexes of packets whose timers have expired and
+   * the time of expiration */
+  std::vector<std::pair<int, std::string> > timedOut;
 };
 
 /* Contains information about the client's request */
@@ -147,13 +153,19 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
 void catchAlarm(int signal);
 
 /**
+ * Prints the list of sequences of packets whose timers have expired and thus
+ * have been resent.
+ */
+void alertTimeout();
+
+/**
  * Check if any packets that were sent but not yet ACKed have gone over the
  * time limit (timeout). Resend if so.
  */
 void checkTimeout();
 
 /**
- * Frees up the same allocated for clientReq.
+ * Frees up the block(s) allocated for clientReq.
  */
 void freeClient(int signal);
 
@@ -175,10 +187,11 @@ std::string get_time();
 void print_window(int base, int n, int init, bool isFirst);
 
 /* Global variables */
-const long ACK_TIMEOUT = 200;    // Unit of milliseconds
-const bool PRINT_WINDOW = false;
+const long ACK_TIMEOUT = 200;           // Unit of milliseconds
+const bool PRINT_WINDOW = true;
 
 SRInfo* clientReq = NULL;
+volatile sig_atomic_t timeout_flag = 0;
 bool timerSet = false;
 
 #endif /* SERVER_H */
