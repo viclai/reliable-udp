@@ -2,6 +2,18 @@ Group #6
 Victor Lai, #404274720 
 Mahir Eusufzai, #
 
+Contributions: 
+Mahir coded the receiver (client) side, while Victor worked on the sender
+(server) side for the full extent of the project. We took an iterative 
+approach to meet the requirements given in the specification provided by the 
+teaching assistant. 
+
 We first started by implementing a UDP client-server interaction without any 
-noise (i.e. packet loss, corruption). Mahir worked on the receiver (client) 
-side, while Victor worked on the sender (server) side. 
+noise (i.e. packet loss, corruption). We ensured that it can send and receive 
+messages before dividing them into packets. 
+
+We then introduced packet loss and corruption. Victor defined a function to 
+simulate packet loss and corruption that is used at both ends. Victor also 
+implemented a timeout to handle packet loss and corruption. 
+
+During each phase, we helped debug each other's code when we faced obstacles. 
