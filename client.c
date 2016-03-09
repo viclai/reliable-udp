@@ -141,13 +141,12 @@ int parseChunk(char* newBuffer, int& seqNum, int&fileSize, char* contents, int &
     start = i+3;
     while (1) {
         char cur = *(newBuffer + i);
-        if (cur == '\0') {
+        if (cur == '\0' || i == MAX_PACKET_SIZE) {
             end = i;
             break;
         }
         i++;
     }
-    
     int contentLength = end - start; // account for excluding null byte
     memcpy(contents, newBuffer + start, contentLength);
     //contents[contentLength] = '\0';
@@ -248,8 +247,11 @@ int main(int argc, char* argv[])
             
             //copy buffer contents
             char* newBuffer = (char*)malloc(MAX_PACKET_SIZE);
+            memset(newBuffer, 0, sizeof(buffer));
             memcpy(newBuffer, buffer, MAX_PACKET_SIZE);
-            
+            //printf("newbuffer is %s\n", newBuffer);
+            //free(buffer);
+
             
             int seqNum;
             char* contents;
