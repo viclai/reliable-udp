@@ -11,12 +11,13 @@ using namespace std;
 
 bool simulatePacketLossCorruption(double prob)
 {
-  int x, r;
+  double x;
+  int r;
   struct timeval tv;
   time_t long_time;
   struct tm *newtime;
 
-  if (prob < 0 || prob > 100)
+  if (prob < 0 || prob > 1)
     return false;
 
   gettimeofday(&tv,0);
@@ -27,7 +28,7 @@ bool simulatePacketLossCorruption(double prob)
      << tv.tv_usec;
   srand(stoul(os.str(), nullptr));
 
-  x = (int)prob;
+  x = prob * 100;
   r = rand() % 100;
 
   if (r <= x - 1)
