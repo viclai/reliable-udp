@@ -8,7 +8,7 @@
 #include <netdb.h>      // gethostbyname
 #include <sys/socket.h> // socket, bind, sockaddr, AF_INET, SOCK_DGRAM, recvfrom, sendto
 #include <strings.h>    // bcopy
-#include <string.h>     // memset, memcpy, strcat
+#include <string.h>     // memset, memcpy, strcat, strcpy
 #include <errno.h>      // errno
 
 #include <vector>       // vector
@@ -53,12 +53,12 @@ int seqInWindowRange(int start, int windowSize, int seq) {
 void adjustWindowAndBuffer(map<int, ContentDescriptor>& m, int& windowStart) {
     //slide window
     //remove entries from old window from map
-    /*map<int, ContentDescriptor>::iterator it = m.find(windowStart);
+    map<int, ContentDescriptor>::iterator it = m.find(windowStart);
     if (it != m.end())
     {
         if (it->second.content != NULL)
             delete it->second.content;
-    }*/
+    }
     m.erase(windowStart);
     windowStart = nextSeqNum(windowStart);
 }
@@ -265,7 +265,8 @@ int main(int argc, char* argv[])
                 //printf("%d is unseen sequence num in window| ", seqNum);
                 //store contents in temp buffer
                 ContentDescriptor c;
-                c.content = contents;
+                c.content = (char*)malloc(MAX_PACKET_SIZE);
+                strcpy(c.content, contents);
                 c.contentSize = contentLength;
                 receivedSequence[seqNum] = c;
                 if (seqNum != windowStart) {
@@ -314,6 +315,7 @@ int main(int argc, char* argv[])
             }
             
             free(ack);
+            free(contents);
             free(newBuffer);
         }
         printf("%d / %d\n", totalLength, fileSize);
