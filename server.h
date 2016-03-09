@@ -175,7 +175,8 @@ std::string get_time();
 void print_window(int base, int n, int init, bool isFirst);
 
 /* Global variables */
-const long ACK_TIMEOUT = 200; // Unit of milliseconds
+const long ACK_TIMEOUT = 200;    // Unit of milliseconds
+const bool PRINT_WINDOW = false;
 
 SRInfo* clientReq = NULL;
 bool timerSet = false;

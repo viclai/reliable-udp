@@ -397,7 +397,8 @@ void processAck(AckSpace* sequenceSpace, int n)
       }
       sequenceSpace->seqNums[j].isAcked = true;
       fprintf(stdout, "* ACK %d processed\n", n);
-      //print_window(sequenceSpace->base, 4, 0, true);
+      if (PRINT_WINDOW)
+        print_window(sequenceSpace->base, 4, 0, true);
 
       /* Slide window if packet ACKed is at the base */
       if (j == sequenceSpace->base)
@@ -409,7 +410,8 @@ void processAck(AckSpace* sequenceSpace, int n)
             sequenceSpace->seqNums[sequenceSpace->base].data.size();
           sequenceSpace->base++;
         }
-        //print_window(sequenceSpace->base, 4, 0, true);
+        if (PRINT_WINDOW)
+          print_window(sequenceSpace->base, 4, 0, true);
       }
       break;
     }
@@ -473,7 +475,7 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
 void catchAlarm(int signal)
 {
   timerSet = false;
-  //fprintf(stdout, "* %s In catchAlarm()\n", get_time().c_str());
+  //fprintf(stdout, "* \n");
   checkTimeout();
   //fprintf(stdout, "*\n");
 }
@@ -507,8 +509,8 @@ void checkTimeout()
 
     if (diff >= ACK_TIMEOUT) // Resend packet
     {
-      fprintf(stdout, "* Timeout for SEQ %d! Resending packet...\n",
-        clientReq->sequenceSpace.seqNums[index].sequence);
+      fprintf(stdout, "* %s Timeout for SEQ %d! Resending packet...\n",
+        get_time().c_str(), clientReq->sequenceSpace.seqNums[index].sequence);
       n = sendMsg(sockfd, packetData.c_str(), packetData.size(), 0, destAddr,
                   destLen);
       if (n < 0)

@@ -318,7 +318,7 @@ int main(int argc, char* argv[])
             free(contents);
             free(newBuffer);
         }
-        printf("%d / %d\n", totalLength, fileSize);
+        printf("%d/%d\n", totalLength, fileSize);
     }
 
     //print contents to file
