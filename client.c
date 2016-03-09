@@ -53,6 +53,12 @@ int seqInWindowRange(int start, int windowSize, int seq) {
 void adjustWindowAndBuffer(map<int, ContentDescriptor>& m, int& windowStart) {
     //slide window
     //remove entries from old window from map
+    /*map<int, ContentDescriptor>::iterator it = m.find(windowStart);
+    if (it != m.end())
+    {
+        if (it->second.content != NULL)
+            delete it->second.content;
+    }*/
     m.erase(windowStart);
     windowStart = nextSeqNum(windowStart);
 }
@@ -306,7 +312,6 @@ int main(int argc, char* argv[])
             }
             
             free(ack);
-            free(contents);
             free(newBuffer);
         }
         printf("%d / %d\n", totalLength, fileSize);
@@ -316,8 +321,6 @@ int main(int argc, char* argv[])
 
     fclose(file);
     close(sockfd); //close socket
-        
-        return 0;
-    
 
+    return 0;
 }
