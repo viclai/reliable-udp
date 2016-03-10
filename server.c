@@ -30,16 +30,13 @@ int main(int argc, char* argv[])
   string clientMsg, clientName;
   struct sockaddr_in serverAddr, clientAddr;
   socklen_t addrLen;
-  struct sigaction timeAction, intAction;
+  struct sigaction timeAction;
   fd_set readFds;
   const char* serverMsg;
   pair<MessageType, string> typeValue;
   MessageType msgType;
   double corruptProb, lossProb;
   bool isLost;
-
-  intAction.sa_handler = freeClient;
-  sigaction(SIGINT, &intAction, NULL);
 
   if (argc < 5)
   {
@@ -112,7 +109,7 @@ int main(int argc, char* argv[])
     isLost = false;
 
     if (timeout_flag)
-      alertTimeout();
+      checkTimeout();
     activity = select(sockfd + 1, &readFds, NULL, NULL, NULL);
     if (activity < 0)
     {
@@ -129,7 +126,7 @@ int main(int argc, char* argv[])
       if (FD_ISSET(sockfd, &readFds))
       {
         if (timeout_flag)
-          alertTimeout();
+          checkTimeout();
         else
           fprintf(stdout, "*\n");
 
@@ -162,7 +159,7 @@ int main(int argc, char* argv[])
           if (isLost)
             continue;
           if (timeout_flag)
-            alertTimeout();
+            checkTimeout();
           fprintf(stdout, "* %s Incoming message: %s\n", get_time().c_str(),
             clientMsg.c_str());
           fprintf(stdout, "* Computing checksum...\n");
@@ -177,7 +174,7 @@ int main(int argc, char* argv[])
           fprintf(stdout, "* Packet is intact!\n");
 
           if (timeout_flag)
-            alertTimeout();
+            checkTimeout();
 
           // Process client message
           typeValue = parseMsg(clientMsg);
@@ -207,7 +204,7 @@ int main(int argc, char* argv[])
             fprintf(stdout, "* %s Processing ACK...\n", get_time().c_str());
             processAck(&clientReq->sequenceSpace, sequence);
             if (timeout_flag)
-              alertTimeout();
+              checkTimeout();
           }
           else // Message with unknown format
           {
@@ -226,7 +223,7 @@ int main(int argc, char* argv[])
           sendPackets(&clientReq->sequenceSpace, sockfd,
                       (struct sockaddr*)&clientAddr, addrLen);
           if (timeout_flag)
-            alertTimeout();
+            checkTimeout();
         }
       }
     }
@@ -401,7 +398,7 @@ void processAck(AckSpace* sequenceSpace, int n)
           if (it == sequenceSpace->sentUnacked.begin())
           {
             sequenceSpace->sentUnacked.erase(it);
-            timerSet = false;
+            timerSet = 0;
             checkTimeout();
           }
           else
@@ -413,7 +410,7 @@ void processAck(AckSpace* sequenceSpace, int n)
       sequenceSpace->seqNums[j].isAcked = true;
       fprintf(stdout, "* ACK %d processed\n", n);
       if (PRINT_WINDOW)
-        print_window(sequenceSpace->base, 4, 0, true);
+        print_window(sequenceSpace->base, NUMBER_OF_SEQ_PER_ROW, 0, true);
 
       /* Slide window if packet ACKed is at the base */
       if (j == sequenceSpace->base)
@@ -426,7 +423,7 @@ void processAck(AckSpace* sequenceSpace, int n)
           sequenceSpace->base++;
         }
         if (PRINT_WINDOW)
-          print_window(sequenceSpace->base, 4, 0, true);
+          print_window(sequenceSpace->base, NUMBER_OF_SEQ_PER_ROW, 0, true);
       }
       break;
     }
@@ -466,7 +463,7 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
     sequenceSpace->sentUnacked.push_back(indexTime);
     if (!timerSet)
     {
-      timerSet = true;
+      timerSet = 1;
       timeout.it_interval.tv_sec = timeout.it_interval.tv_usec = 0;
       timeout.it_value.tv_sec = 0;
       timeout.it_value.tv_usec = ACK_TIMEOUT * 1E3;
@@ -475,8 +472,6 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
         perror("ERROR setting timer");
         exit(1);
       }
-      //fprintf(stdout, "* Timer (%ld ms) set for SEQ %d!\n", ACK_TIMEOUT,
-        //sequenceSpace->seqNums[i].sequence);
     }
     fprintf(stdout, "* %s SEQ %d (%d B) sent\n",
       get_time().c_str(), sequenceSpace->seqNums[i].sequence, n);
@@ -489,33 +484,8 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
 
 void catchAlarm(int signal)
 {
-  timerSet = false;
+  timerSet = 0;
   timeout_flag = 1;
-  checkTimeout();
-  
-}
-
-void alertTimeout()
-{
-  vector<pair<int, string> >::iterator it;
-
-  it = clientReq->sequenceSpace.timedOut.begin();
-
-  if (it != clientReq->sequenceSpace.timedOut.end())
-    fprintf(stdout, "*\n");
-  else
-    return;
-  
-  while (it != clientReq->sequenceSpace.timedOut.end())
-  {
-    fprintf(stdout, "* %s SEQ %d has been resent due to timeout!\n",
-      it->second.c_str(),
-      clientReq->sequenceSpace.seqNums[it->first].sequence);
-    it = clientReq->sequenceSpace.timedOut.erase(it);
-  }
-  fprintf(stdout, "*\n");
-  timeout_flag = 0;
-  return;
 }
 
 void checkTimeout()
@@ -547,9 +517,6 @@ void checkTimeout()
 
     if (diff >= ACK_TIMEOUT) // Resend packet
     {
-      clientReq->sequenceSpace.timedOut.push_back(
-        make_pair(index, get_time())
-      );
       n = sendMsg(sockfd, packetData.c_str(), packetData.size(), 0, destAddr,
                   destLen);
       if (n < 0)
@@ -558,6 +525,8 @@ void checkTimeout()
         exit(1);
       }
 
+      fprintf(stdout, "* %s SEQ %d has been resent due to timeout!\n",
+        get_time().c_str(), clientReq->sequenceSpace.seqNums[index].sequence);
       it = clientReq->sequenceSpace.sentUnacked.erase(it);
       gettimeofday(&now, NULL);
       resent.push_back(make_pair(index, now));
@@ -565,7 +534,7 @@ void checkTimeout()
     }
     else if (!timerSet)
     {
-      timerSet = true;
+      timerSet = 0;
       timeout.it_interval.tv_sec = timeout.it_interval.tv_usec = 0;
       timeout.it_value.tv_sec = 0;
       timeout.it_value.tv_usec = (ACK_TIMEOUT - diff) * 1E3;
@@ -587,7 +556,7 @@ void checkTimeout()
     clientReq->sequenceSpace.sentUnacked.push_back(resent[i]);
     if (!timerSet)
     {
-      timerSet = true;
+      timerSet = 0;
       timeout.it_interval.tv_sec = timeout.it_interval.tv_usec = 0;
       timeout.it_value.tv_sec = 0;
       timeout.it_value.tv_usec = ACK_TIMEOUT * 1E3;
@@ -599,14 +568,8 @@ void checkTimeout()
     }
   }
 
+  timeout_flag = 0;
   return;
-}
-
-void freeClient(int signal)
-{
-  if (clientReq != NULL)
-    delete clientReq;
-  exit(0);
 }
 
 string get_time()

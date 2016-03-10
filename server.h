@@ -59,10 +59,6 @@ struct AckSpace
 
   /* Container of indexes of packets sent but un-ACKed */
   std::list<std::pair<int, struct timeval> > sentUnacked;
-
-  /* Container of tuples of indexes of packets whose timers have expired and
-   * the time of expiration */
-  std::vector<std::pair<int, std::string> > timedOut;
 };
 
 /* Contains information about the client's request */
@@ -153,21 +149,10 @@ void sendPackets(AckSpace* sequenceSpace, int sockfd,
 void catchAlarm(int signal);
 
 /**
- * Prints the list of sequences of packets whose timers have expired and thus
- * have been resent.
- */
-void alertTimeout();
-
-/**
  * Check if any packets that were sent but not yet ACKed have gone over the
  * time limit (timeout). Resend if so.
  */
 void checkTimeout();
-
-/**
- * Frees up the block(s) allocated for clientReq.
- */
-void freeClient(int signal);
 
 /**
  * Outputs the current time in hours (h), minutes (m), seconds (s), and
@@ -189,9 +174,10 @@ void print_window(int base, int n, int init, bool isFirst);
 /* Global variables */
 const long ACK_TIMEOUT = 200;           // Unit of milliseconds
 const bool PRINT_WINDOW = true;
+const int NUMBER_OF_SEQ_PER_ROW = 4;
 
 SRInfo* clientReq = NULL;
 volatile sig_atomic_t timeout_flag = 0;
-bool timerSet = false;
+volatile sig_atomic_t timerSet = 0;
 
 #endif /* SERVER_H */
