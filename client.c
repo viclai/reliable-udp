@@ -231,12 +231,12 @@ int main(int argc, char* argv[])
         
         if (n == -1 || isLost) {
             //don't send anything
-            printf("Packet lost |");
+            printf("Packet lost | ");
             //printf("an error: %s\n", strerror(errno));
         }
         else if (isCorrupt) {
             //don't send anything
-            printf("Packet is corrupt");
+            printf("Packet is corrupt | ");
         }
         else if (n == 0) {
             printf("empty\n");
@@ -318,7 +318,7 @@ int main(int argc, char* argv[])
             free(contents);
             free(newBuffer);
         }
-        printf("%d/%d\n", totalLength, fileSize);
+        printf("%d/%d (%d%% complete)\n", totalLength, fileSize, (int)((double)totalLength * 1.0 / fileSize * 100));
     }
 
     //print contents to file
