@@ -170,8 +170,8 @@ int main(int argc, char* argv[])
     char *hostname = argv[1];
     int portno = atoi(argv[2]);
     char *filename =  argv[3];
-    int pLoss = atof(argv[4]);
-    int pCorrupt = atof(argv[5]);
+    double pLoss = atof(argv[4]);
+    double pCorrupt = atof(argv[5]);
 
     //create socket
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0); //create a new socket
@@ -224,9 +224,9 @@ int main(int argc, char* argv[])
 
     while (fileSize == UNKNOWN_FILE_LENGTH || totalLength < fileSize) {
         memset(buffer, 0, sizeof(buffer));
-        int isLost = simulatePacketLossCorruption(pLoss);
-        int isCorrupt = simulatePacketLossCorruption(pCorrupt);
-        //printf("lost: %d corrupt: %d\n", isLost, isCorrupt);
+        bool isLost = simulatePacketLossCorruption(pLoss);
+        bool isCorrupt = simulatePacketLossCorruption(pCorrupt);
+        //printf("lost: %d corrupt: %d\n", (int)isLost, (int)isCorrupt);
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *) &serv_addr, &slen);
         
         if (n == -1 || isLost) {
@@ -296,7 +296,7 @@ int main(int argc, char* argv[])
             }
             else {
                 //ignore
-                //printf("duplicate sq\n");
+                printf("Duplicate sequence\n");
             }
             
             //printf("Contents are\n%s", contents);
