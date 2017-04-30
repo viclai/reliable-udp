@@ -1,6 +1,6 @@
 # Synopsis
 
-Reliable UDP is a course-related project assigned in an upper-division networks <a href="http://www.lasr.cs.ucla.edu/classes/118_winter16/" target="_blank" title="COM SCI 118">class</a> at UCLA. A network layer is built on top of UDP to create a client-server interaction that exhibits reliable data transfer.
+Reliable UDP is a course-related project assigned in an upper-division networks <a href="https://sa.ucla.edu/ro/Public/SOC/Results/ClassDetail?term_cd=16W&subj_area_cd=COM%20SCI&crs_catlg_no=0118%20%20%20%20&class_id=187350200&class_no=%20001%20%20" target="_blank" title="COM SCI 118">class</a> at UCLA. A network layer is built on top of UDP to create a client-server interaction that exhibits reliable data transfer.
 
 ![screenshot](hub/screenshot.png "Client requesting a small file from server")
 
